@@ -120,7 +120,7 @@ def _nvmap(f: Callable[..., Y], *args) -> Y:
   np_args = [a[0] if isinstance(a, np.ndarray) else None for a in args]
   args = [a if n is None else None for n, a in zip(np_args, args)]
   if not any(item is not None for item in args):
-    return args
+    return np_args
   in_axes = [None if a is None else 0 for a in args]
 
   def outer_f(*args, np_args=np_args):
@@ -453,6 +453,7 @@ def body_tree(
     print('args', args)
     f_args = [_take(arg, ids) for arg, ids in zip(args, key_in_take[key])]
     key_y[key] = _nvmap(f, carry, *f_args)
+    print("key", key, "key_y", key_y)
 
   # slice None results from the final output
   keys = [k for k in keys if key_y[k] is not None]
