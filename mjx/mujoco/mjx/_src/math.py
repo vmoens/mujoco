@@ -143,7 +143,7 @@ def quat_mul_axis(q: jax.Tensor, axis: jax.Tensor) -> jax.Tensor:
   Returns:
     A quaternion q * axis
   """
-  return jp.tensor([
+  return torch.stack([
       -q[1] * axis[0] - q[2] * axis[1] - q[3] * axis[2],
       q[0] * axis[0] + q[2] * axis[2] - q[3] * axis[1],
       q[0] * axis[1] + q[3] * axis[0] - q[1] * axis[2],
@@ -157,17 +157,16 @@ def quat_to_mat(q: jax.Tensor) -> jax.Tensor:
   q = jp.outer(q, q)
 
   return torch.stack(
-      [
+      [torch.stack([
           q[0, 0] + q[1, 1] - q[2, 2] - q[3, 3],
           2 * (q[1, 2] - q[0, 3]),
-          2 * (q[1, 3] + q[0, 2]),
-
-          2 * (q[1, 2] + q[0, 3]),
+          2 * (q[1, 3] + q[0, 2]),]),
+          torch.stack([2 * (q[1, 2] + q[0, 3]),
           q[0, 0] - q[1, 1] + q[2, 2] - q[3, 3],
-          2 * (q[2, 3] - q[0, 1]),
-          2 * (q[1, 3] - q[0, 2]),
+          2 * (q[2, 3] - q[0, 1]),]),
+          torch.stack([2 * (q[1, 3] - q[0, 2]),
           2 * (q[2, 3] + q[0, 1]),
-          q[0, 0] - q[1, 1] - q[2, 2] + q[3, 3],
+          q[0, 0] - q[1, 1] - q[2, 2] + q[3, 3],]),
       ])
 
 

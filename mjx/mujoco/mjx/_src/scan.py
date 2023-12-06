@@ -435,7 +435,11 @@ def body_tree(
         id_map = _index(body_ids, parent_ids)
 
         def index_sum(x, i=id_map, s=body_ids.size):
-          return jax.ops.segment_sum(x, i, s)
+          print(x)
+          print(i)
+          print(s)
+          return torch.zeros(s).scatter_add(0, i, x)
+          # return jax.ops.segment_sum(x, i, s)
 
         y = tree_map(index_sum, y)
         carry = y if carry is None else tree_map(jp.add, carry, y)
@@ -461,10 +465,12 @@ def body_tree(
     y_typ = [key_y[key] for key in keys]
     if len(out_types) > 1:
       y_typ = [y_[i] for y_ in y_typ]
+    print("y_typ", y_typ)
     if typ != 'b':
-      # tree_map(lambda x: print(x.shape), y_typ)
-      y_typ = torch.cat(y_typ, 1)
-    # y_typ = tree_map(lambda *x: jp.concatenate(x), *y_typ)
+      y_typ = tree_map(lambda x: torch.flatten(x, 0, 1), y_typ)
+      print("b case", y_typ)
+    y_typ = torch.cat(y_typ)
+    print("after 2nd", y_typ)
     y_take = np.argsort(np.concatenate([key_y_take[key][i] for key in keys]))
     _check_output(y_typ, y_take, typ, i)
     y.append(_take(y_typ, y_take))
