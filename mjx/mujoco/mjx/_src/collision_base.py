@@ -17,13 +17,13 @@
 import dataclasses
 from typing import Dict, List, Optional, Tuple
 
-import jax
+import torch as jax
 # pylint: disable=g-importing-member
 from mujoco.mjx._src.dataclasses import PyTreeNode
 from mujoco.mjx._src.types import GeomType
 # pylint: enable=g-importing-member
 
-Contact = Tuple[jax.Array, jax.Array, jax.Array]
+Contact = Tuple[jax.Tensor, jax.Tensor, jax.Tensor]
 
 
 @dataclasses.dataclass
@@ -44,21 +44,21 @@ CandidateSet = Dict[
 class GeomInfo(PyTreeNode):
   """Collision info for a geom."""
 
-  pos: jax.Array
-  mat: jax.Array
-  size: jax.Array
-  face: Optional[jax.Array] = None
-  vert: Optional[jax.Array] = None
-  edge: Optional[jax.Array] = None
-  facenorm: Optional[jax.Array] = None
+  pos: jax.Tensor
+  mat: jax.Tensor
+  size: jax.Tensor
+  face: Optional[jax.Tensor] = None
+  vert: Optional[jax.Tensor] = None
+  edge: Optional[jax.Tensor] = None
+  facenorm: Optional[jax.Tensor] = None
 
 
 class SolverParams(PyTreeNode):
   """Contact solver params."""
 
-  friction: jax.Array
-  solref: jax.Array
-  solreffriction: jax.Array
-  solimp: jax.Array
-  margin: jax.Array
-  gap: jax.Array
+  friction: jax.Tensor
+  solref: jax.Tensor
+  solreffriction: jax.Tensor
+  solimp: jax.Tensor
+  margin: jax.Tensor
+  gap: jax.Tensor

@@ -16,15 +16,16 @@
 
 from typing import Any, Callable, TypeVar
 
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 # pylint: disable=g-importing-member
 from mujoco.mjx._src.types import JointType
 from mujoco.mjx._src.types import Model
 from mujoco.mjx._src.types import TrnType
 # pylint: enable=g-importing-member
 import numpy as np
-
+from torch.utils._pytree import tree_map
 
 Y = TypeVar('Y')
 
@@ -33,7 +34,7 @@ Y = TypeVar('Y')
 def _take(obj: Y, idx: np.ndarray) -> Y:
   """Takes idxs on any pytree given to it.
 
-  XLA executes x[jp.array([1, 2, 3])] slower than x[1:4], so we detect when
+  XLA executes x[jp.tensor([1, 2, 3])] slower than x[1:4], so we detect when
   take indices are contiguous, and convert them to slices.
 
   Args:
@@ -57,10 +58,11 @@ def _take(obj: Y, idx: np.ndarray) -> Y:
     ):
       x = x[idx[0] : idx[-1] + 1]
     else:
-      x = x.take(jp.array(idx), axis=0, mode='wrap')
+      x = x[idx]
+      # x = x.take(jp.tensor(idx), axis=0, mode='wrap')
     return x
 
-  return jax.tree_map(take, obj)
+  return tree_map(take, obj)
 
 
 def _q_bodyid(m: Model) -> np.ndarray:
@@ -113,15 +115,20 @@ def _nvmap(f: Callable[..., Y], *args) -> Y:
     if isinstance(arg, np.ndarray) and not np.all(arg == arg[0]):
       raise RuntimeError(f'numpy arg elements do not match: {arg}')
 
+  # np_args = [a[0] if isinstance(a, np.ndarray) else None for a in args]
+  print('orig args', args)
   np_args = [a[0] if isinstance(a, np.ndarray) else None for a in args]
   args = [a if n is None else None for n, a in zip(np_args, args)]
+  if not any(item is not None for item in args):
+    return args
   in_axes = [None if a is None else 0 for a in args]
 
   def outer_f(*args, np_args=np_args):
     args = [a if n is None else n for n, a in zip(args, np_args)]
     return f(*args)
-
-  return jax.vmap(outer_f, in_axes=in_axes)(*args)
+  print('result args', args)
+  import jax as realjax
+  return realjax.vmap(outer_f, in_axes=in_axes)(*args)
 
 
 def _check_input(m: Model, args: Any, in_types: str) -> None:
@@ -139,7 +146,7 @@ def _check_input(m: Model, args: Any, in_types: str) -> None:
 
 
 def _check_output(
-    y: jax.Array, take_ids: np.ndarray, typ: str, idx: int
+    y, take_ids: np.ndarray, typ: str, idx: int
 ) -> None:
   """Checks that scan output has the right shape."""
   if y.shape[0] != take_ids.shape[0]:
@@ -221,7 +228,7 @@ def flat(
         'u': i,
         'a': m.actuator_actadr[i],
         'j': (
-            m.actuator_trnid[i, 0]
+            m.actuator_trnid[i]
             if m.actuator_trntype[i] == TrnType.JOINT
             else np.array(-1)
         ),
@@ -289,7 +296,7 @@ def flat(
       [v if typ in flat_ else jp.concatenate(v) for v, typ in zip(y, out_types)]
       for y in ys
   ]
-  ys = jax.tree_map(lambda *x: jp.concatenate(x), *ys)
+  ys = tree_map(lambda *x: jp.concatenate(x), *ys)
 
   # put concatenated results back in order
   reordered_ys = []
@@ -416,6 +423,7 @@ def body_tree(
 
   # use this grouping to take the right data subsets and call vmap(f)
   keys = sorted(key_body_ids, reverse=reverse)
+  print('keys', keys)
   key_y = {}
   for key in keys:
     carry = None
@@ -432,16 +440,17 @@ def body_tree(
         def index_sum(x, i=id_map, s=body_ids.size):
           return jax.ops.segment_sum(x, i, s)
 
-        y = jax.tree_map(index_sum, y)
-        carry = y if carry is None else jax.tree_map(jp.add, carry, y)
+        y = tree_map(index_sum, y)
+        carry = y if carry is None else tree_map(jp.add, carry, y)
     elif key in key_parents:
       ys = [key_y[p] for p in key_parents[key]]
-      y = jax.tree_map(lambda *x: jp.concatenate(x), *ys)
+      y = tree_map(lambda *x: jp.concatenate(x), *ys)
       body_ids = np.concatenate([key_body_ids[p] for p in key_parents[key]])
       parent_ids = m.body_parentid[key_body_ids[key]]
       take_fn = lambda x, i=_index(body_ids, parent_ids): _take(x, i)
-      carry = jax.tree_map(take_fn, y)
+      carry = tree_map(take_fn, y)
 
+    print('args', args)
     f_args = [_take(arg, ids) for arg, ids in zip(args, key_in_take[key])]
     key_y[key] = _nvmap(f, carry, *f_args)
 
@@ -455,8 +464,8 @@ def body_tree(
     if len(out_types) > 1:
       y_typ = [y_[i] for y_ in y_typ]
     if typ != 'b':
-      y_typ = jax.tree_map(jp.concatenate, y_typ)
-    y_typ = jax.tree_map(lambda *x: jp.concatenate(x), *y_typ)
+      y_typ = tree_map(jp.concatenate, y_typ)
+    y_typ = tree_map(lambda *x: jp.concatenate(x), *y_typ)
     y_take = np.argsort(np.concatenate([key_y_take[key][i] for key in keys]))
     _check_output(y_typ, y_take, typ, i)
     y.append(_take(y_typ, y_take))

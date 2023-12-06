@@ -16,8 +16,9 @@
 
 from typing import Tuple
 
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 from mujoco.mjx._src import math
 # pylint: disable=g-importing-member
 from mujoco.mjx._src.collision_base import Contact
@@ -26,8 +27,8 @@ from mujoco.mjx._src.collision_base import GeomInfo
 
 
 def _closest_segment_point_plane(
-    a: jax.Array, b: jax.Array, p0: jax.Array, plane_normal: jax.Array
-) -> jax.Array:
+    a: jax.Tensor, b: jax.Tensor, p0: jax.Tensor, plane_normal: jax.Tensor
+) -> jax.Tensor:
   """Gets the closest point between a line segment and a plane.
 
   Args:
@@ -53,8 +54,8 @@ def _closest_segment_point_plane(
 
 
 def _closest_triangle_point(
-    p0: jax.Array, p1: jax.Array, p2: jax.Array, pt: jax.Array
-) -> jax.Array:
+    p0: jax.Tensor, p1: jax.Tensor, p2: jax.Tensor, pt: jax.Tensor
+) -> jax.Tensor:
   """Gets the closest point between a triangle and a point in space.
 
   Args:
@@ -102,13 +103,13 @@ def _closest_triangle_point(
 
 
 def _closest_segment_triangle_points(
-    a: jax.Array,
-    b: jax.Array,
-    p0: jax.Array,
-    p1: jax.Array,
-    p2: jax.Array,
-    triangle_normal: jax.Array,
-) -> Tuple[jax.Array, jax.Array]:
+    a: jax.Tensor,
+    b: jax.Tensor,
+    p0: jax.Tensor,
+    p1: jax.Tensor,
+    p2: jax.Tensor,
+    triangle_normal: jax.Tensor,
+) -> Tuple[jax.Tensor, jax.Tensor]:
   """Gets the closest points between a line segment and triangle.
 
   Args:
@@ -141,11 +142,11 @@ def _closest_segment_triangle_points(
 
   # Get the point with minimum distance from the line segment point to the
   # triangle point.
-  distance = jp.array([[d1, d2, d3, d4]])
+  distance = jp.tensor([[d1, d2, d3, d4]])
   min_dist = jp.amin(distance)
   mask = (distance == min_dist).T
-  seg_pt = jp.array([seg_pt1, seg_pt2, seg_pt3, seg_pt4]) * mask
-  tri_pt = jp.array([tri_pt1, tri_pt2, tri_pt3, tri_pt4]) * mask
+  seg_pt = jp.tensor([seg_pt1, seg_pt2, seg_pt3, seg_pt4]) * mask
+  tri_pt = jp.tensor([tri_pt1, tri_pt2, tri_pt3, tri_pt4]) * mask
   seg_pt = jp.sum(seg_pt, axis=0) / jp.sum(mask)
   tri_pt = jp.sum(tri_pt, axis=0) / jp.sum(mask)
 
@@ -153,8 +154,8 @@ def _closest_segment_triangle_points(
 
 
 def _manifold_points(
-    poly: jax.Array, poly_mask: jax.Array, poly_norm: jax.Array
-) -> jax.Array:
+    poly: jax.Tensor, poly_mask: jax.Tensor, poly_norm: jax.Tensor
+) -> jax.Tensor:
   """Chooses four points on the polygon with approximately maximal area."""
   dist_mask = jp.where(poly_mask, 0.0, -1e6)
   a_idx = jp.argmax(dist_mask)
@@ -174,29 +175,29 @@ def _manifold_points(
   dist_bp = jp.abs(bp.dot(bc)) + dist_mask
   dist_ap = jp.abs(ap.dot(ac)) + dist_mask
   d_idx = jp.concatenate([dist_bp, dist_ap]).argmax() % poly.shape[0]
-  return jp.array([a_idx, b_idx, c_idx, d_idx])
+  return jp.tensor([a_idx, b_idx, c_idx, d_idx])
 
 
 def _project_pt_onto_plane(
-    pt: jax.Array, plane_pt: jax.Array, plane_normal: jax.Array
-) -> jax.Array:
+    pt: jax.Tensor, plane_pt: jax.Tensor, plane_normal: jax.Tensor
+) -> jax.Tensor:
   """Projects a point onto a plane along the plane normal."""
   dist = (pt - plane_pt).dot(plane_normal)
   return pt - dist * plane_normal
 
 
 def _project_poly_onto_plane(
-    poly: jax.Array, plane_pt: jax.Array, plane_normal: jax.Array
-) -> jax.Array:
+    poly: jax.Tensor, plane_pt: jax.Tensor, plane_normal: jax.Tensor
+) -> jax.Tensor:
   """Projects a polygon onto a plane using the plane normal."""
-  return jax.vmap(_project_pt_onto_plane, in_axes=[0, None, None])(
+  return jax.vmap(_project_pt_onto_plane, (0, None, None))(
       poly, plane_pt, math.normalize(plane_normal)
   )
 
 
 def _project_poly_onto_poly_plane(
-    poly1: jax.Array, norm1: jax.Array, poly2: jax.Array, norm2: jax.Array
-) -> jax.Array:
+    poly1: jax.Tensor, norm1: jax.Tensor, poly2: jax.Tensor, norm2: jax.Tensor
+) -> jax.Tensor:
   """Projects poly1 onto the poly2 plane along poly1's normal."""
   d = poly2[0].dot(norm2)
   denom = norm1.dot(norm2)
@@ -206,18 +207,18 @@ def _project_poly_onto_poly_plane(
 
 
 def _point_in_front_of_plane(
-    plane_pt: jax.Array, plane_normal: jax.Array, pt: jax.Array
-) -> jax.Array:
+    plane_pt: jax.Tensor, plane_normal: jax.Tensor, pt: jax.Tensor
+) -> jax.Tensor:
   """Checks if a point is strictly in front of a plane."""
   return (pt - plane_pt).dot(plane_normal) > 1e-6
 
 
 def _clip_edge_to_planes(
-    edge_p0: jax.Array,
-    edge_p1: jax.Array,
-    plane_pts: jax.Array,
-    plane_normals: jax.Array,
-) -> Tuple[jax.Array, jax.Array]:
+    edge_p0: jax.Tensor,
+    edge_p1: jax.Tensor,
+    plane_pts: jax.Tensor,
+    plane_normals: jax.Tensor,
+) -> Tuple[jax.Tensor, jax.Tensor]:
   """Clips an edge against side planes.
 
   We return two clipped points, and a mask to include the new edge or not.
@@ -240,7 +241,7 @@ def _clip_edge_to_planes(
   # Get candidate clipped points along line segment (p0, p1) by clipping against
   # all clipping planes.
   candidate_clipped_ps = jax.vmap(
-      _closest_segment_point_plane, in_axes=[None, None, 0, 0]
+      _closest_segment_point_plane, (None, None, 0, 0)
   )(p0, p1, plane_pts, plane_normals)
 
   def clip_edge_point(p0, p1, p0_in_front, clipped_ps):
@@ -262,7 +263,7 @@ def _clip_edge_to_planes(
   # Clip each edge point.
   new_p0 = clip_edge_point(p0, p1, p0_in_front, candidate_clipped_ps)
   new_p1 = clip_edge_point(p1, p0, p1_in_front, candidate_clipped_ps)
-  clipped_pts = jp.array([new_p0, new_p1])
+  clipped_pts = jp.tensor([new_p0, new_p1])
 
   # Keep the original points if both points are in front of any of the clipping
   # planes, rather than creating a new clipped edge. If the entire subject edge
@@ -270,18 +271,18 @@ def _clip_edge_to_planes(
   # polygon instead.
   both_in_front = p0_in_front & p1_in_front
   mask = ~jp.any(both_in_front)
-  new_ps = jp.where(mask, clipped_pts, jp.array([p0, p1]))
+  new_ps = jp.where(mask, clipped_pts, jp.tensor([p0, p1]))
   # Mask out crossing clipped edge points.
   mask = jp.where((p0 - p1).dot(new_ps[0] - new_ps[1]) < 0, False, mask)
-  return new_ps, jp.array([mask, mask])
+  return new_ps, jp.tensor([mask, mask])
 
 
 def _clip(
-    clipping_poly: jax.Array,
-    subject_poly: jax.Array,
-    clipping_normal: jax.Array,
-    subject_normal: jax.Array,
-) -> Tuple[jax.Array, jax.Array]:
+    clipping_poly: jax.Tensor,
+    subject_poly: jax.Tensor,
+    clipping_normal: jax.Tensor,
+    subject_normal: jax.Tensor,
+) -> Tuple[jax.Tensor, jax.Tensor]:
   """Clips a subject polygon against a clipping polygon.
 
   A parallelized clipping algorithm for convex polygons. The result is a set of
@@ -301,7 +302,7 @@ def _clip(
   clipping_p0 = jp.roll(clipping_poly, 1, axis=0)
   clipping_plane_pts = clipping_p0
   clipping_p1 = clipping_poly
-  clipping_plane_normals = jax.vmap(jp.cross, in_axes=[0, None])(
+  clipping_plane_normals = jax.vmap(jp.cross, (0, None))(
       clipping_p1 - clipping_p0,
       clipping_normal,
   )
@@ -310,14 +311,14 @@ def _clip(
   subject_edge_p0 = jp.roll(subject_poly, 1, axis=0)
   subject_plane_pts = subject_edge_p0
   subject_edge_p1 = subject_poly
-  subject_plane_normals = jax.vmap(jp.cross, in_axes=[0, None])(
+  subject_plane_normals = jax.vmap(jp.cross, (0, None))(
       subject_edge_p1 - subject_edge_p0,
       subject_normal,
   )
 
   # Clip all edges of the subject poly against clipping side planes.
   clipped_edges0, masks0 = jax.vmap(
-      _clip_edge_to_planes, in_axes=[0, 0, None, None]
+      _clip_edge_to_planes, (0, 0, None, None)
   )(
       subject_edge_p0,
       subject_edge_p1,
@@ -335,7 +336,7 @@ def _clip(
 
   # Clip all edges of the clipping poly against subject planes.
   clipped_edges1, masks1 = jax.vmap(
-      _clip_edge_to_planes, in_axes=[0, 0, None, None]
+      _clip_edge_to_planes, (0, 0, None, None)
   )(clipping_p0_s, clipping_p1_s, subject_plane_pts, subject_plane_normals)
 
   # Merge the points and reshape.
@@ -348,12 +349,12 @@ def _clip(
 
 
 def _create_contact_manifold(
-    clipping_poly: jax.Array,
-    subject_poly: jax.Array,
-    clipping_norm: jax.Array,
-    subject_norm: jax.Array,
-    sep_axis: jax.Array,
-) -> Tuple[jax.Array, jax.Array, jax.Array]:
+    clipping_poly: jax.Tensor,
+    subject_poly: jax.Tensor,
+    clipping_norm: jax.Tensor,
+    subject_norm: jax.Tensor,
+    sep_axis: jax.Tensor,
+) -> Tuple[jax.Tensor, jax.Tensor, jax.Tensor]:
   """Creates a contact manifold between two convex polygons.
 
   The polygon faces are expected to have a counter clockwise winding order so
@@ -397,15 +398,15 @@ def _create_contact_manifold(
 
 
 def _sat_hull_hull(
-    faces_a: jax.Array,
-    faces_b: jax.Array,
-    vertices_a: jax.Array,
-    vertices_b: jax.Array,
-    normals_a: jax.Array,
-    normals_b: jax.Array,
-    unique_edges_a: jax.Array,
-    unique_edges_b: jax.Array,
-) -> Tuple[jax.Array, jax.Array, jax.Array]:
+    faces_a: jax.Tensor,
+    faces_b: jax.Tensor,
+    vertices_a: jax.Tensor,
+    vertices_b: jax.Tensor,
+    normals_a: jax.Tensor,
+    normals_b: jax.Tensor,
+    unique_edges_a: jax.Tensor,
+    unique_edges_b: jax.Tensor,
+) -> Tuple[jax.Tensor, jax.Tensor, jax.Tensor]:
   """Runs the Separating Axis Test for a pair of hulls.
 
   Given two convex hulls, the Separating Axis Test finds a separating axis
@@ -442,8 +443,8 @@ def _sat_hull_hull(
   # for each separating axis, get the support
   @jax.vmap
   def get_support(axis):
-    support_a = jax.vmap(jp.dot, in_axes=[None, 0])(axis, vertices_a)
-    support_b = jax.vmap(jp.dot, in_axes=[None, 0])(axis, vertices_b)
+    support_a = jax.vmap(jp.dot, (None, 0))(axis, vertices_a)
+    support_b = jax.vmap(jp.dot, (None, 0))(axis, vertices_b)
     dist1 = support_a.max() - support_b.min()
     dist2 = support_b.max() - support_a.min()
     sign = jp.where(dist1 > dist2, -1, 1)
@@ -460,8 +461,8 @@ def _sat_hull_hull(
   is_edge_contact = best_idx >= (normals_a.shape[0] + normals_b.shape[0])
 
   # get the (reference) face most aligned with the separating axis
-  dist_a = jax.vmap(jp.dot, in_axes=[None, 0])(best_axis, normals_a)
-  dist_b = jax.vmap(jp.dot, in_axes=[None, 0])(best_axis, normals_b)
+  dist_a = jax.vmap(jp.dot, (None, 0))(best_axis, normals_a)
+  dist_b = jax.vmap(jp.dot, (None, 0))(best_axis, normals_b)
   a_max = dist_a.argmax()
   b_max = dist_b.argmax()
   a_min = dist_a.argmin()
@@ -488,7 +489,7 @@ def _sat_hull_hull(
   idx = dist.argmin()
   dist = jp.where(
       is_edge_contact,
-      jp.array([dist[idx], 1, 1, 1]),
+      jp.tensor([dist[idx], 1, 1, 1]),
       dist,
   )
   pos = jp.where(is_edge_contact, jp.tile(pos[idx], (4, 1)), pos)
@@ -545,7 +546,7 @@ def sphere_convex(sphere: GeomInfo, convex: GeomInfo) -> Contact:
   pt = _project_pt_onto_plane(sphere_pos, face[0], normal)
   edge_p0 = jp.roll(face, 1, axis=0)
   edge_p1 = face
-  edge_normals = jax.vmap(jp.cross, in_axes=[0, None])(
+  edge_normals = jax.vmap(jp.cross, (0, None))(
       edge_p1 - edge_p0,
       normal,
   )
@@ -590,7 +591,7 @@ def capsule_convex(cap: GeomInfo, convex: GeomInfo) -> Contact:
   axis, length = cap.mat[:, 2], cap.size[1]
   axis = convex.mat.T @ axis
   seg = axis * length
-  cap_pts = jp.array([
+  cap_pts = jp.tensor([
       cap_pos - seg,
       cap_pos + seg,
   ])
@@ -615,7 +616,7 @@ def capsule_convex(cap: GeomInfo, convex: GeomInfo) -> Contact:
   # face.
   edge_p0 = jp.roll(face, 1, axis=0)
   edge_p1 = face
-  edge_normals = jax.vmap(jp.cross, in_axes=[0, None])(
+  edge_normals = jax.vmap(jp.cross, (0, None))(
       edge_p1 - edge_p0,
       normal,
   )
@@ -623,7 +624,7 @@ def capsule_convex(cap: GeomInfo, convex: GeomInfo) -> Contact:
       cap_pts[0], cap_pts[1], edge_p0, edge_normals
   )
   cap_pts_clipped = cap_pts_clipped - normal * cap.size[0]
-  face_pts = jax.vmap(_project_pt_onto_plane, in_axes=[0, None, None])(
+  face_pts = jax.vmap(_project_pt_onto_plane, (0, None, None))(
       cap_pts_clipped, face[0], normal
   )
   # Create variables for the face contact.
@@ -635,7 +636,7 @@ def capsule_convex(cap: GeomInfo, convex: GeomInfo) -> Contact:
 
   # Get a potential edge contact.
   edge_closest, cap_closest = jax.vmap(
-      math.closest_segment_to_segment_points, in_axes=[0, 0, None, None]
+      math.closest_segment_to_segment_points, (0, 0, None, None)
   )(edge_p0, edge_p1, cap_pts[0], cap_pts[1])
   e_idx = ((edge_closest - cap_closest) ** 2).sum(axis=1).argmin()
   cap_closest_pt, edge_closest_pt = cap_closest[e_idx], edge_closest[e_idx]

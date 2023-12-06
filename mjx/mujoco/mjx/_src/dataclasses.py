@@ -18,8 +18,8 @@ import copy
 import dataclasses
 
 import typing
-from typing import Any, Dict, Optional, Sequence, TypeVar
-import jax
+from typing import Dict, Optional, Sequence, TypeVar
+import torch as jax
 import numpy as np
 
 _T = TypeVar('_T')
@@ -30,7 +30,7 @@ def dataclass(clz: _T) -> _T:
 
   This is based off flax.struct.dataclass, but instead of using field
   descriptors to specify which fields are pytrees, we follow a simple rule:
-  a leaf field is a pytree node if and only if it's a jax.Array
+  a leaf field is a pytree node if and only if it's a jax.Tensor
 
   Args:
     clz: the class to register as a dataclass
@@ -42,9 +42,9 @@ def dataclass(clz: _T) -> _T:
   meta_fields, data_fields = [], []
   for field in dataclasses.fields(data_clz):
     if any((
-        field.type is jax.Array,
+        field.type is jax.Tensor,
         dataclasses.is_dataclass(field.type),
-        jax.Array in typing.get_args(field.type),
+        jax.Tensor in typing.get_args(field.type),
     )):
       data_fields.append(field)
     else:
@@ -86,9 +86,12 @@ def dataclass(clz: _T) -> _T:
 
     return data_clz(**dict(meta_args + data_args))
 
-  jax.tree_util.register_pytree_with_keys(
+  jax.utils._pytree.register_pytree_node(
       data_clz, iterate_clz_with_keys, clz_from_iterable
   )
+  # jax.utils._pytree.register_pytree_with_keys(
+  #     data_clz, iterate_clz_with_keys, clz_from_iterable
+  # )
 
   return data_clz
 
@@ -113,12 +116,8 @@ class PyTreeNode:
     # stub for pytype
     raise NotImplementedError
 
-  @classmethod
-  def fields(cls) -> tuple[dataclasses.Field[Any], ...]:
-    return dataclasses.fields(cls)
-
   def tree_replace(
-      self, params: Dict[str, Optional[jax.typing.ArrayLike]]
+      self, params,
   ) -> 'PyTreeNode':
     new = self
     for k, v in params.items():
@@ -129,7 +128,7 @@ class PyTreeNode:
 def _tree_replace(
     base: PyTreeNode,
     attr: Sequence[str],
-    val: Optional[jax.typing.ArrayLike],
+    val,
 ) -> PyTreeNode:
   """Sets attributes in a struct.dataclass with values."""
   if not attr:

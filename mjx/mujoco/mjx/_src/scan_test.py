@@ -15,7 +15,8 @@
 """Tests for scan functions."""
 
 from absl.testing import absltest
-from jax import numpy as jp
+# from jax import numpy as jp
+import torch as jp
 import mujoco
 from mujoco import mjx
 # pylint: disable=g-importing-member
@@ -60,8 +61,8 @@ class ScanTest(absltest.TestCase):
     def fn(body_id):
       return body_id + 1
 
-    b_in = jp.array([1])
-    b_expect = jp.array([2])
+    b_in = jp.tensor([1])
+    b_expect = jp.tensor([2])
     b_out = scan.flat(m, fn, 'b', 'b', b_in)
 
     np.testing.assert_equal(np.array(b_out), np.array(b_expect))
@@ -77,8 +78,8 @@ class ScanTest(absltest.TestCase):
     j_fn = lambda jnt_pos, val: val + jp.sum(jnt_pos)
     s_fn = lambda jnt_types, val: val + sum(jnt_types)
 
-    b_in = jp.array([[0, 0], [1, 1], [2, 2], [3, 3]])
-    b_expect = jp.array([[0, 0], [1, 1], [3, 3], [8, 8]])
+    b_in = jp.tensor([[0, 0], [1, 1], [2, 2], [3, 3]])
+    b_expect = jp.tensor([[0, 0], [1, 1], [3, 3], [8, 8]])
     b_out = scan.flat(m, j_fn, 'jb', 'b', m.jnt_pos, b_in)
     np.testing.assert_equal(np.array(b_out), np.array(b_expect))
 
@@ -90,7 +91,7 @@ class ScanTest(absltest.TestCase):
       if tuple(jnt_types) == (JointType.FREE,):
         return None
       return val + sum(jnt_types)
-    b_expect = jp.array([[0, 0], [3, 3], [8, 8]])
+    b_expect = jp.tensor([[0, 0], [3, 3], [8, 8]])
     b_out = scan.flat(m, no_free, 'jb', 'b', m.jnt_type, b_in)
     np.testing.assert_equal(np.array(b_out), np.array(b_expect))
 
@@ -118,8 +119,8 @@ class ScanTest(absltest.TestCase):
       carry = jp.zeros_like(val) if carry is None else carry
       return carry + val + sum(jnt_types)
 
-    b_in = jp.array([[0, 0], [1, 1], [2, 2], [3, 3]])
-    b_expect = jp.array([[0, 0], [1, 1], [4, 4], [9, 9]])
+    b_in = jp.tensor([[0, 0], [1, 1], [2, 2], [3, 3]])
+    b_expect = jp.tensor([[0, 0], [1, 1], [4, 4], [9, 9]])
 
     b_out = scan.body_tree(m, j_fn, 'jb', 'b', m.jnt_pos, b_in)
     np.testing.assert_equal(np.array(b_out), np.array(b_expect))
@@ -128,7 +129,7 @@ class ScanTest(absltest.TestCase):
     np.testing.assert_equal(np.array(b_out), np.array(b_expect))
 
     # and reverse too:
-    b_expect = jp.array([[12, 12], [12, 12], [3, 3], [8, 8]])
+    b_expect = jp.tensor([[12, 12], [12, 12], [3, 3], [8, 8]])
     b_out = scan.body_tree(m, j_fn, 'jb', 'b', m.jnt_pos, b_in, reverse=True)
     np.testing.assert_equal(np.array(b_out), np.array(b_expect))
 
@@ -141,7 +142,7 @@ class ScanTest(absltest.TestCase):
         return None
       carry = jp.zeros_like(val) if carry is None else carry
       return carry + val + sum(jnt_types)
-    b_expect = jp.array([[0, 0], [3, 3], [8, 8]])
+    b_expect = jp.tensor([[0, 0], [3, 3], [8, 8]])
     b_out = scan.body_tree(m, no_free, 'jb', 'b', m.jnt_type, b_in)
     np.testing.assert_equal(np.array(b_out), np.array(b_expect))
 
@@ -204,22 +205,21 @@ class ScanTest(absltest.TestCase):
         m.jnt_type,
         jp.arange(m.nq),
         jp.arange(m.nv),
-        jp.array([1.4, 1.1]),
+        jp.tensor([1.4, 1.1]),
     )
     gear, jnt_typ, qadr, vadr, act = scan.flat(
         m, fn, 'ujqva', 'ujqva', *args, group_by='u'
     )
 
-    actuator_trnid = m.actuator_trnid[:, 0]
     np.testing.assert_array_equal(gear, m.actuator_gear)
-    np.testing.assert_array_equal(jnt_typ, m.jnt_type[actuator_trnid])
-    np.testing.assert_array_equal(act, jp.array([1.4, 1.1]))
+    np.testing.assert_array_equal(jnt_typ, m.jnt_type[m.actuator_trnid])
+    np.testing.assert_array_equal(act, jp.tensor([1.4, 1.1]))
     expected_vadr = np.concatenate(
-        [np.nonzero(m.dof_jntid == trnid)[0] for trnid in actuator_trnid]
+        [np.nonzero(m.dof_jntid == trnid)[0] for trnid in m.actuator_trnid]
     )
     np.testing.assert_array_equal(vadr, expected_vadr)
     expected_qadr = np.concatenate(
-        [np.nonzero(scan._q_jointid(m) == i)[0] for i in actuator_trnid]
+        [np.nonzero(scan._q_jointid(m) == i)[0] for i in m.actuator_trnid]
     )
     np.testing.assert_array_equal(qadr, expected_qadr)
 

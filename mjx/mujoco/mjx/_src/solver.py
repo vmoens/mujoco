@@ -16,10 +16,10 @@
 
 from typing import Optional
 
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 import mujoco
-from mujoco.mjx._src import constraint
 from mujoco.mjx._src import math
 from mujoco.mjx._src import smooth
 # pylint: disable=g-importing-member
@@ -50,19 +50,19 @@ class _Context(PyTreeNode):
     solver_niter: number of solver iterations
   """
 
-  qacc: jax.Array
-  qfrc_constraint: jax.Array
-  Jaref: jax.Array  # pylint: disable=invalid-name
-  efc_force: jax.Array
-  M: Optional[jax.Array]
-  Ma: jax.Array  # pylint: disable=invalid-name
-  grad: jax.Array
-  Mgrad: jax.Array  # pylint: disable=invalid-name
-  search: jax.Array
-  gauss: jax.Array
-  cost: jax.Array
-  prev_cost: jax.Array
-  solver_niter: jax.Array
+  qacc: jax.Tensor
+  qfrc_constraint: jax.Tensor
+  Jaref: jax.Tensor  # pylint: disable=invalid-name
+  efc_force: jax.Tensor
+  M: Optional[jax.Tensor]
+  Ma: jax.Tensor  # pylint: disable=invalid-name
+  grad: jax.Tensor
+  Mgrad: jax.Tensor  # pylint: disable=invalid-name
+  search: jax.Tensor
+  gauss: jax.Tensor
+  cost: jax.Tensor
+  prev_cost: jax.Tensor
+  solver_niter: jax.Tensor
 
   @classmethod
   def create(cls, m: Model, d: Data, grad: bool = True) -> '_Context':
@@ -70,12 +70,12 @@ class _Context(PyTreeNode):
     # TODO(robotics-team): determine nv at which sparse mul is faster
     M = smooth.dense_m(m, d) if m.nv < 100 else None  # pylint: disable=invalid-name
     ma = smooth.mul_m(m, d, d.qacc) if M is None else M @ d.qacc
-    nv_0 = jp.zeros(m.nv)
+    nv_0 = jp.zeros((m.nv,))
     ctx = _Context(
         qacc=d.qacc,
         qfrc_constraint=d.qfrc_constraint,
         Jaref=jaref,
-        efc_force=d.efc_force,
+        efc_force=jp.zeros(d.nefc),
         M=M,
         Ma=ma,
         grad=nv_0,
@@ -104,33 +104,32 @@ class _LSPoint(PyTreeNode):
     deriv_1: second derivative of quadratic
   """
 
-  alpha: jax.Array
-  cost: jax.Array
-  deriv_0: jax.Array
-  deriv_1: jax.Array
+  alpha: jax.Tensor
+  cost: jax.Tensor
+  deriv_0: jax.Tensor
+  deriv_1: jax.Tensor
 
   @classmethod
   def create(
       cls,
-      m: Model,
+      d: Data,
       ctx: _Context,
-      alpha: jax.Array,
-      jv: jax.Array,
-      quad: jax.Array,
-      quad_gauss: jax.Array,
+      alpha: jax.Tensor,
+      jv: jax.Tensor,
+      quad: jax.Tensor,
+      quad_gauss: jax.Tensor,
   ) -> '_LSPoint':
     """Creates a linesearch point with first and second derivatives."""
     # roughly corresponds to CGEval in mujoco/src/engine/engine_solver.c
 
     # TODO(robotics-team): change this to support friction constraints
-    ne, nf, *_ = constraint.count_constraints(m)
-    active = ((ctx.Jaref + alpha * jv) < 0).at[:ne + nf].set(True)
+    active = ((ctx.Jaref + alpha * jv) < 0).at[:d.ne + d.nf].set(True)
     quad = jax.vmap(jp.multiply)(quad, active)  # only active
     quad_total = quad_gauss + jp.sum(quad, axis=0)
 
     cost = alpha * alpha * quad_total[2] + alpha * quad_total[1] + quad_total[0]
     deriv_0 = 2 * alpha * quad_total[2] + quad_total[1]
-    deriv_1 = 2 * quad_total[2] + (quad_total[2] == 0) * mujoco.mjMINVAL
+    deriv_1 = 2 * quad_total[2]
     return _LSPoint(alpha=alpha, cost=cost, deriv_0=deriv_0, deriv_1=deriv_1)
 
 
@@ -146,8 +145,8 @@ class _LSContext(PyTreeNode):
 
   lo: _LSPoint
   hi: _LSPoint
-  swap: jax.Array
-  ls_iter: jax.Array
+  swap: jax.Tensor
+  ls_iter: jax.Tensor
 
 
 def _while_loop_scan(cond_fun, body_fun, init_val, max_iter):
@@ -179,11 +178,12 @@ def _update_constraint(m: Model, d: Data, ctx: _Context) -> _Context:
   Returns:
     context with new constraint force and costs
   """
+  del m
+
   # TODO(robotics-team): add friction constraints
 
   # only count active constraints
-  ne, nf, *_ = constraint.count_constraints(m)
-  active = (ctx.Jaref < 0).at[:ne + nf].set(True)
+  active = (ctx.Jaref < 0).at[:d.ne + d.nf].set(True)
 
   efc_force = d.efc_D * -ctx.Jaref * active
   qfrc_constraint = d.efc_J.T @ efc_force
@@ -222,8 +222,7 @@ def _update_gradient(m: Model, d: Data, ctx: _Context) -> _Context:
   if m.opt.solver == SolverType.CG:
     mgrad = smooth.solve_m(m, d, grad)
   elif m.opt.solver == SolverType.NEWTON:
-    ne, nf, *_ = constraint.count_constraints(m)
-    active = (ctx.Jaref < 0).at[:ne + nf].set(True)
+    active = (ctx.Jaref < 0).at[:d.ne + d.nf].set(True)
     h = (d.efc_J.T * d.efc_D * active) @ d.efc_J
     h = smooth.dense_m(m, d) + h
     h_ = jax.scipy.linalg.cho_factor(h)
@@ -236,7 +235,7 @@ def _update_gradient(m: Model, d: Data, ctx: _Context) -> _Context:
   return ctx
 
 
-def _rescale(m: Model, value: jax.Array) -> jax.Array:
+def _rescale(m: Model, value: jax.Tensor) -> jax.Tensor:
   return value / (m.stat.meaninertia * max(1, m.nv))
 
 
@@ -267,9 +266,9 @@ def _linesearch(m: Model, d: Data, ctx: _Context) -> _Context:
   quad = jp.stack((0.5 * ctx.Jaref * ctx.Jaref, jv * ctx.Jaref, 0.5 * jv * jv))
   quad = (quad * d.efc_D).T
 
-  point_fn = lambda a: _LSPoint.create(m, ctx, a, jv, quad, quad_gauss)
+  point_fn = lambda alpha: _LSPoint.create(d, ctx, alpha, jv, quad, quad_gauss)
 
-  def cond(ctx: _LSContext) -> jax.Array:
+  def cond(ctx: _LSContext) -> jax.Tensor:
     done = ctx.ls_iter >= m.opt.ls_iterations
     done |= ~ctx.swap  # if we did not adjust the interval
     done |= (ctx.lo.deriv_0 < 0) & (ctx.lo.deriv_0 > -gtol)
@@ -304,12 +303,12 @@ def _linesearch(m: Model, d: Data, ctx: _Context) -> _Context:
     return ctx
 
   # initialize interval
-  p0 = point_fn(jp.array(0.0))
+  p0 = point_fn(jp.tensor(0.0))
   lo = point_fn(p0.alpha - p0.deriv_0 / p0.deriv_1)
   lesser_fn = lambda x, y: jp.where(lo.deriv_0 < p0.deriv_0, x, y)
   hi = jax.tree_map(lesser_fn, p0, lo)
   lo = jax.tree_map(lesser_fn, lo, p0)
-  ls_ctx = _LSContext(lo=lo, hi=hi, swap=jp.array(True), ls_iter=0)
+  ls_ctx = _LSContext(lo=lo, hi=hi, swap=jp.tensor(True), ls_iter=0)
   ls_ctx = _while_loop_scan(cond, body, ls_ctx, m.opt.ls_iterations)
 
   # move to new solution if improved
@@ -328,7 +327,7 @@ def _linesearch(m: Model, d: Data, ctx: _Context) -> _Context:
 def solve(m: Model, d: Data) -> Data:
   """Finds forces that satisfy constraints using conjugate gradient descent."""
 
-  def cond(ctx: _Context) -> jax.Array:
+  def cond(ctx: _Context) -> jax.Tensor:
     improvement = _rescale(m, ctx.prev_cost - ctx.cost)
     gradient = _rescale(m, math.norm(ctx.grad))
 

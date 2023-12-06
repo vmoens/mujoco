@@ -16,8 +16,9 @@
 
 from typing import Tuple
 
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 from mujoco.mjx._src import math
 from mujoco.mjx._src import scan
 from mujoco.mjx._src import support
@@ -31,13 +32,13 @@ from mujoco.mjx._src.types import Model
 
 def _inertia_box_fluid_model(
     m: Model,
-    inertia: jax.Array,
-    mass: jax.Array,
-    root_com: jax.Array,
-    xipos: jax.Array,
-    ximat: jax.Array,
-    cvel: jax.Array,
-) -> Tuple[jax.Array, jax.Array]:
+    inertia: jax.Tensor,
+    mass: jax.Tensor,
+    root_com: jax.Tensor,
+    xipos: jax.Tensor,
+    ximat: jax.Tensor,
+    cvel: jax.Tensor,
+) -> Tuple[jax.Tensor, jax.Tensor]:
   """Fluid forces based on inertia-box approximation."""
   box = jp.repeat(inertia[None, :], 3, axis=0)
   box *= jp.ones((3, 3)) - 2 * jp.eye(3)
@@ -56,8 +57,8 @@ def _inertia_box_fluid_model(
   lfrc_vel = lvel[3:] * -3.0 * jp.pi * diam * m.opt.viscosity
 
   # add lift and drag force and torque
-  scale_vel = jp.array([box[1] * box[2], box[0] * box[2], box[0] * box[1]])
-  scale_ang = jp.array([
+  scale_vel = jp.tensor([box[1] * box[2], box[0] * box[2], box[0] * box[1]])
+  scale_ang = jp.tensor([
       box[0] * (box[1] ** 4 + box[2] ** 4),
       box[1] * (box[0] ** 4 + box[2] ** 4),
       box[2] * (box[0] ** 4 + box[1] ** 4),
@@ -122,17 +123,17 @@ def passive(m: Model, d: Data) -> Data:
   # body-level viscosity, lift and drag
   if m.opt.has_fluid_params:
     force, torque = jax.vmap(
-        _inertia_box_fluid_model, in_axes=(None, 0, 0, 0, 0, 0, 0)
+        _inertia_box_fluid_model, (None, 0, 0, 0, 0, 0, 0)
     )(
         m,
         m.body_inertia,
         m.body_mass,
-        d.subtree_com[jp.array(m.body_rootid)],
+        d.subtree_com[jp.tensor(m.body_rootid)],
         d.xipos,
         d.ximat,
         d.cvel,
     )
-    qfrc_target = jax.vmap(support.apply_ft, in_axes=(None, None, 0, 0, 0, 0))(
+    qfrc_target = jax.vmap(support.apply_ft, (None, None, 0, 0, 0, 0))(
         m, d, force, torque, d.xipos, jp.arange(m.nbody)
     )
     qfrc_passive += jp.sum(qfrc_target, axis=0)

@@ -16,8 +16,9 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 import mujoco
 from mujoco import mjx
 from mujoco.mjx._src import constraint
@@ -118,8 +119,8 @@ class ConstraintTest(parameterized.TestCase):
     m = test_util.load_test_file('ant.xml')
 
     timeconst = m.opt.timestep / 4.0  # timeconst < 2 * timestep
-    solimp = jp.array([timeconst, 1.0])
-    solref = jp.array([0.8, 0.99, 0.001, 0.2, 2])
+    solimp = jp.tensor([timeconst, 1.0])
+    solref = jp.tensor([0.8, 0.99, 0.001, 0.2, 2])
     pos = jp.ones(3)
 
     m.opt.disableflags = m.opt.disableflags | DisableBit.REFSAFE
@@ -136,8 +137,13 @@ class ConstraintTest(parameterized.TestCase):
     m = test_util.load_test_file('ant.xml')
     d = mujoco.MjData(m)
 
-    m.opt.disableflags = m.opt.disableflags | DisableBit.CONSTRAINT
+    m.opt.disableflags = m.opt.disableflags & ~DisableBit.CONSTRAINT
     mx, dx = mjx.device_put(m), mjx.device_put(d)
+    dx = constraint.make_constraint(mx, dx)
+    self.assertGreater(dx.efc_J.shape[0], 1)
+
+    m.opt.disableflags = m.opt.disableflags | DisableBit.CONSTRAINT
+    mx = mjx.device_put(m)
     dx = constraint.make_constraint(mx, dx)
     self.assertEqual(dx.efc_J.shape[0], 0)
 

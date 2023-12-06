@@ -16,8 +16,9 @@
 
 from typing import Tuple
 
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 from mujoco.mjx._src import scan
 # pylint: disable=g-importing-member
 from mujoco.mjx._src.types import Data
@@ -26,15 +27,15 @@ from mujoco.mjx._src.types import Model
 
 
 def jac(
-    m: Model, d: Data, point: jax.Array, body_id: jax.Array
-) -> Tuple[jax.Array, jax.Array]:
+    m: Model, d: Data, point: jax.Tensor, body_id: jax.Tensor
+) -> Tuple[jax.Tensor, jax.Tensor]:
   """Compute pair of (NV, 3) Jacobians of global point attached to body."""
   fn = lambda carry, b: b if carry is None else b + carry
   mask = (jp.arange(m.nbody) == body_id) * 1
   mask = scan.body_tree(m, fn, 'b', 'b', mask, reverse=True)
-  mask = mask[jp.array(m.dof_bodyid)] > 0
+  mask = mask[jp.tensor(m.dof_bodyid)] > 0
 
-  offset = point - d.subtree_com[jp.array(m.body_rootid)[body_id]]
+  offset = point - d.subtree_com[jp.tensor(m.body_rootid)[body_id]]
   jacp = jax.vmap(lambda a, b=offset: a[3:] + jp.cross(a[:3], b))(d.cdof)
   jacp = jax.vmap(jp.multiply)(jacp, mask)
   jacr = jax.vmap(jp.multiply)(d.cdof[:, :3], mask)
@@ -45,10 +46,10 @@ def jac(
 def jac_dif_pair(
     m: Model,
     d: Data,
-    pos: jax.Array,
-    body_1: jax.Array,
-    body_2: jax.Array,
-) -> jax.Array:
+    pos: jax.Tensor,
+    body_1: jax.Tensor,
+    body_2: jax.Tensor,
+) -> jax.Tensor:
   """Compute Jacobian difference for two body points."""
   jacp2, _ = jac(m, d, pos, body_2)
   jacp1, _ = jac(m, d, pos, body_1)
@@ -58,19 +59,19 @@ def jac_dif_pair(
 def apply_ft(
     m: Model,
     d: Data,
-    force: jax.Array,
-    torque: jax.Array,
-    point: jax.Array,
-    body_id: jax.Array,
-) -> jax.Array:
+    force: jax.Tensor,
+    torque: jax.Tensor,
+    point: jax.Tensor,
+    body_id: jax.Tensor,
+) -> jax.Tensor:
   """Apply Cartesian force and torque."""
   jacp, jacr = jac(m, d, point, body_id)
   return jacp @ force + jacr @ torque
 
 
-def xfrc_accumulate(m: Model, d: Data) -> jax.Array:
+def xfrc_accumulate(m: Model, d: Data) -> jax.Tensor:
   """Accumulate xfrc_applied into a qfrc."""
-  qfrc = jax.vmap(apply_ft, in_axes=(None, None, 0, 0, 0, 0))(
+  qfrc = jax.vmap(apply_ft, (None, None, 0, 0, 0, 0))(
       m,
       d,
       d.xfrc_applied[:, :3],

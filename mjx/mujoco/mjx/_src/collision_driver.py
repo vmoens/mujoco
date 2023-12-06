@@ -16,8 +16,9 @@
 
 from typing import Callable, Dict, Optional, Sequence, Tuple, Union
 
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 import mujoco
 from mujoco.mjx._src import collision_base
 # pylint: disable=g-importing-member
@@ -40,6 +41,7 @@ from mujoco.mjx._src.types import DisableBit
 from mujoco.mjx._src.types import GeomType
 from mujoco.mjx._src.types import Model
 # pylint: enable=g-importing-member
+import numpy as np
 
 
 # pair-wise collision functions
@@ -80,12 +82,6 @@ def _add_candidate(
   if t1 > t2:
     t1, t2, g1, g2 = t2, t1, g2, g1
 
-  # MuJoCo does not collide planes with other planes or hfields
-  if t1 == GeomType.PLANE and t2 == GeomType.PLANE:
-    return
-  if t1 == GeomType.PLANE and t2 == GeomType.HFIELD:
-    return
-
   def mesh_key(i):
     convex_data = [[None] * m.ngeom] * 3
     if isinstance(m, Model):
@@ -116,7 +112,7 @@ def _pair_params(
     candidates: Sequence[Candidate],
 ) -> SolverParams:
   """Gets solver params for pair geoms."""
-  ipair = jp.array([c.ipair for c in candidates])
+  ipair = jp.tensor([c.ipair for c in candidates])
   friction = jp.clip(m.pair_friction[ipair], a_min=mujoco.mjMINMU)
   solref = m.pair_solref[ipair]
   solreffriction = m.pair_solreffriction[ipair]
@@ -132,12 +128,12 @@ def _priority_params(
     candidates: Sequence[Candidate],
 ) -> SolverParams:
   """Gets solver params from priority geoms."""
-  geomp = jp.array([c.geomp for c in candidates])
-  friction = m.geom_friction[geomp][:, jp.array([0, 0, 1, 2, 2])]
+  geomp = jp.tensor([c.geomp for c in candidates])
+  friction = m.geom_friction[geomp][:, jp.tensor([0, 0, 1, 2, 2])]
   solref = m.geom_solref[geomp]
   solreffriction = jp.zeros(geomp.shape + (mujoco.mjNREF,))
   solimp = m.geom_solimp[geomp]
-  g = jp.array([(c.geom1, c.geom2) for c in candidates])
+  g = jp.tensor([(c.geom1, c.geom2) for c in candidates])
   margin = jp.amax(m.geom_margin[g.T], axis=0)
   gap = jp.amax(m.geom_gap[g.T], axis=0)
 
@@ -149,14 +145,14 @@ def _dynamic_params(
     candidates: Sequence[Candidate],
 ) -> SolverParams:
   """Gets solver params for dynamic geoms."""
-  g1 = jp.array([c.geom1 for c in candidates])
-  g2 = jp.array([c.geom2 for c in candidates])
+  g1 = jp.tensor([c.geom1 for c in candidates])
+  g2 = jp.tensor([c.geom2 for c in candidates])
 
   friction = jp.maximum(m.geom_friction[g1], m.geom_friction[g2])
   # copy friction terms for the full geom pair
-  friction = friction[:, jp.array([0, 0, 1, 2, 2])]
+  friction = friction[:, jp.tensor([0, 0, 1, 2, 2])]
 
-  minval = jp.array(mujoco.mjMINVAL)
+  minval = jp.tensor(mujoco.mjMINVAL)
   solmix1, solmix2 = m.geom_solmix[g1], m.geom_solmix[g2]
   mix = solmix1 / (solmix1 + solmix2)
   mix = jp.where((solmix1 < minval) & (solmix2 < minval), 0.5, mix)
@@ -179,7 +175,7 @@ def _pair_info(
     m: Model, d: Data, geom1: Sequence[int], geom2: Sequence[int]
 ) -> Tuple[GeomInfo, GeomInfo, Sequence[Dict[str, Optional[int]]]]:
   """Returns geom pair info for calculating collision."""
-  g1, g2 = jp.array(geom1), jp.array(geom2)
+  g1, g2 = jp.tensor(geom1), jp.tensor(geom2)
   info1 = GeomInfo(
       d.geom_xpos[g1],
       d.geom_xmat[g1],
@@ -266,11 +262,11 @@ def _collide_geoms(
 
   # call contact function
   g1, g2, in_axes = _pair_info(m, d, geom1, geom2)
-  res = jax.vmap(fn, in_axes=in_axes)(g1, g2)
+  res = jax.vmap(fn, in_axes)(g1, g2)
   dist, pos, frame = jax.tree_map(jp.concatenate, res)
 
   params = jax.tree_map(lambda *x: jp.concatenate(x), *params)
-  geom1, geom2 = jp.array(geom1), jp.array(geom2)
+  geom1, geom2 = jp.tensor(geom1), jp.tensor(geom2)
   # repeat params by the number of contacts per geom pair
   n_repeat = dist.shape[-1] // geom1.shape[0]
   geom1, geom2, params = jax.tree_map(
@@ -289,11 +285,13 @@ def _collide_geoms(
       solimp=params.solimp,
       geom1=geom1,
       geom2=geom2,
+      dim=np.array([]),
+      efc_address=np.array([]),
   )
   return con
 
 
-def _max_contact_points(m: Union[Model, mujoco.MjModel]) -> int:
+def _max_contact_points(m: Model) -> int:
   """Returns the maximum number of contact points when set as a numeric."""
   for i in range(m.nnumeric):
     name = m.names[m.name_numericadr[i] :].decode('utf-8').split('\x00', 1)[0]
@@ -337,7 +335,7 @@ def collision_candidates(m: Union[Model, mujoco.MjModel]) -> CandidateSet:
   return candidate_set
 
 
-def ncon(m: Union[Model, mujoco.MjModel]) -> int:
+def ncon(m: Model) -> int:
   """Returns the number of contacts computed in MJX given a model."""
   if m.opt.disableflags & DisableBit.CONTACT:
     return 0
@@ -357,8 +355,9 @@ def ncon(m: Union[Model, mujoco.MjModel]) -> int:
 
 def collision(m: Model, d: Data) -> Data:
   """Collides geometries."""
-  if ncon(m) == 0:
-    return d.replace(contact=Contact.zero())
+  ncon_ = ncon(m)
+  if ncon_ == 0:
+    return d.replace(contact=Contact.zero(), ncon=0)
 
   candidate_set = collision_candidates(m)
 
@@ -378,4 +377,13 @@ def collision(m: Model, d: Data) -> Data:
     _, idx = jax.lax.top_k(-contact.dist, k=max_contact_points)
     contact = jax.tree_map(lambda x, idx=idx: jp.take(x, idx, axis=0), contact)
 
-  return d.replace(contact=contact)
+  if ncon_ != contact.dist.shape[0]:
+    raise RuntimeError('Number of contacts does not match ncon.')
+
+  # TODO(robotics-simulation): move this logic to device_put
+  ns = d.ne + d.nf + d.nl
+  contact = contact.replace(efc_address=np.arange(ns, ns + ncon_ * 4, 4))
+  # TODO(robotics-simulation): add support for other friction dimensions
+  contact = contact.replace(dim=3 * np.ones(ncon_, dtype=np.int32))
+
+  return d.replace(contact=contact, ncon=ncon_)

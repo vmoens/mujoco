@@ -17,8 +17,9 @@
 import functools
 from typing import Optional, Sequence
 
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 import mujoco
 from mujoco.mjx._src import collision_driver
 from mujoco.mjx._src import constraint
@@ -52,8 +53,8 @@ _RK4_B = np.array([1.0 / 6.0, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0])
 def named_scope(fn, name: str = ''):
   @functools.wraps(fn)
   def wrapper(*args, **kwargs):
-    with jax.named_scope(name or getattr(fn, '__name__')):
-      res = fn(*args, **kwargs)
+    # with jax.named_scope(name or getattr(fn, '__name__')):
+    res = fn(*args, **kwargs)
     return res
 
   return wrapper
@@ -97,14 +98,14 @@ def _actuation(m: Model, d: Data) -> Data:
     ctrlrange = jp.where(
         m.actuator_ctrllimited[:, None],
         m.actuator_ctrlrange,
-        jp.array([-jp.inf, jp.inf]),
+        jp.tensor([-jp.inf, jp.inf]),
     )
     ctrl = jp.clip(ctrl, ctrlrange[:, 0], ctrlrange[:, 1])
 
   # act_dot for stateful actuators
   def get_act_dot(dyn_typ, dyn_prm, ctrl, act):
     if dyn_typ == DynType.NONE:
-      act_dot = jp.array(0.0)
+      act_dot = jp.tensor(0.0)
     elif dyn_typ == DynType.INTEGRATOR:
       act_dot = ctrl
     elif dyn_typ == DynType.FILTER:
@@ -144,7 +145,7 @@ def _actuation(m: Model, d: Data) -> Data:
       raise RuntimeError(f'unrecognized gaintype {typ.name}.')
 
     typ, prm = BiasType(bias_t), bias_p
-    bias = jp.array(0.0)
+    bias = jp.tensor(0.0)
     if typ == BiasType.AFFINE:
       bias = prm[0] + prm[1] * len_ + prm[2] * vel
 
@@ -167,7 +168,7 @@ def _actuation(m: Model, d: Data) -> Data:
   forcerange = jp.where(
       m.actuator_forcelimited[:, None],
       m.actuator_forcerange,
-      jp.array([-jp.inf, jp.inf]),
+      jp.tensor([-jp.inf, jp.inf]),
   )
   force = jp.clip(force, forcerange[:, 0], forcerange[:, 1])
 
@@ -177,12 +178,12 @@ def _actuation(m: Model, d: Data) -> Data:
   actfrcrange = jp.where(
       m.jnt_actfrclimited[:, None],
       m.jnt_actfrcrange,
-      jp.array([-jp.inf, jp.inf]),
+      jp.tensor([-jp.inf, jp.inf]),
   )
   ids = sum(
       ([i] * JointType(j).dof_width() for i, j in enumerate(m.jnt_type)), []
   )
-  actfrcrange = jp.take(actfrcrange, jp.array(ids), axis=0)
+  actfrcrange = jp.take(actfrcrange, jp.tensor(ids), axis=0)
   qfrc_actuator = jp.clip(qfrc_actuator, actfrcrange[:, 0], actfrcrange[:, 1])
 
   d = d.replace(act_dot=act_dot, qfrc_actuator=qfrc_actuator)
@@ -201,8 +202,8 @@ def _acceleration(m: Model, d: Data) -> Data:
 
 @named_scope
 def _integrate_pos(
-    jnt_typs: Sequence[str], qpos: jax.Array, qvel: jax.Array, dt: jax.Array
-) -> jax.Array:
+    jnt_typs: Sequence[str], qpos: jax.Tensor, qvel: jax.Tensor, dt: jax.Tensor
+) -> jax.Tensor:
   """Integrate position given velocity."""
   qs, qi, vi = [], 0, 0
 
@@ -232,9 +233,9 @@ def _integrate_pos(
 def _advance(
     m: Model,
     d: Data,
-    act_dot: jax.Array,
-    qacc: jax.Array,
-    qvel: Optional[jax.Array] = None,
+    act_dot: jax.Tensor,
+    qacc: jax.Tensor,
+    qvel: Optional[jax.Tensor] = None,
 ) -> Data:
   """Advance state and time given activation derivatives and acceleration."""
   act = d.act
@@ -243,7 +244,7 @@ def _advance(
     actrange = jp.where(
         m.actuator_actlimited[:, None],
         m.actuator_actrange,
-        jp.array([-jp.inf, jp.inf]),
+        jp.tensor([-jp.inf, jp.inf]),
     )
     fn = lambda act, actrange: jp.clip(act, actrange[0], actrange[1])
     act = scan.flat(m, fn, 'au', 'a', act, actrange, group_by='u')

@@ -16,8 +16,9 @@
 
 from typing import Tuple
 
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 from mujoco.mjx._src import math
 # pylint: disable=g-importing-member
 from mujoco.mjx._src.collision_base import Contact
@@ -26,11 +27,11 @@ from mujoco.mjx._src.collision_base import GeomInfo
 
 
 def _plane_sphere(
-    plane_normal: jax.Array,
-    plane_pos: jax.Array,
-    sphere_pos: jax.Array,
-    radius: jax.Array,
-) -> Tuple[jax.Array, jax.Array]:
+    plane_normal: jax.Tensor,
+    plane_pos: jax.Tensor,
+    sphere_pos: jax.Tensor,
+    radius: jax.Tensor,
+) -> Tuple[jax.Tensor, jax.Tensor]:
   """Returns the penetration and contact point between a plane and sphere."""
   cdist = jp.dot(sphere_pos - plane_pos, plane_normal)
   dist = cdist - radius
@@ -52,9 +53,9 @@ def plane_capsule(plane: GeomInfo, cap: GeomInfo) -> Contact:
   n, axis = plane.mat[:, 2], cap.mat[:, 2]
   # align contact frames with capsule axis
   b, b_norm = math.normalize_with_norm(axis - n * jp.dot(n, axis))
-  y, z = jp.array([0.0, 1.0, 0.0]), jp.array([0.0, 0.0, 1.0])
+  y, z = jp.tensor([0.0, 1.0, 0.0]), jp.tensor([0.0, 0.0, 1.0])
   b = jp.where(b_norm < 0.5, jp.where((-0.5 < n[1]) & (n[1] < 0.5), y, z), b)
-  frame = jp.array([[n, b, jp.cross(n, b)]])
+  frame = jp.tensor([[n, b, jp.cross(n, b)]])
   segment = axis * cap.size[1]
   contacts = []
   for offset in [segment, -segment]:
@@ -66,11 +67,11 @@ def plane_capsule(plane: GeomInfo, cap: GeomInfo) -> Contact:
 
 
 def _sphere_sphere(
-    pos1: jax.Array, radius1: jax.Array, pos2: jax.Array, radius2: jax.Array
+    pos1: jax.Tensor, radius1: jax.Tensor, pos2: jax.Tensor, radius2: jax.Tensor
 ) -> Contact:
   """Returns the penetration, contact point, and normal between two spheres."""
   n, dist = math.normalize_with_norm(pos2 - pos1)
-  n = jp.where(dist == 0.0, jp.array([1.0, 0.0, 0.0]), n)
+  n = jp.where(dist == 0.0, jp.tensor([1.0, 0.0, 0.0]), n)
   dist = dist - (radius1 + radius2)
   pos = pos1 + n * (radius1 + dist * 0.5)
   return dist, pos, n

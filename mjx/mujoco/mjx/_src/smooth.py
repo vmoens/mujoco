@@ -14,8 +14,9 @@
 # ==============================================================================
 """Core smooth dynamics functions."""
 
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 import mujoco
 from mujoco.mjx._src import math
 from mujoco.mjx._src import scan
@@ -44,7 +45,7 @@ def kinematics(m: Model, d: Data) -> Data:
     qpos_i = 0
     for i, jnt_typ in enumerate(jnt_typs):
       if jnt_typ == JointType.FREE:
-        anchor, axis = qpos[qpos_i : qpos_i + 3], jp.array([0.0, 0.0, 1.0])
+        anchor, axis = qpos[qpos_i : qpos_i + 3], jp.tensor([0.0, 0.0, 1.0])
       else:
         anchor = math.rotate(jnt_pos[i], quat) + pos
         axis = math.rotate(jnt_axis[i], quat)
@@ -101,20 +102,13 @@ def kinematics(m: Model, d: Data) -> Data:
 
   # TODO(erikfrey): confirm that quats are more performant for mjx than mats
   xipos, ximat = local_to_global(xpos, xquat, m.body_ipos, m.body_iquat)
+  geom_xpos, geom_xmat = local_to_global(
+      xpos[m.geom_bodyid], xquat[m.geom_bodyid], m.geom_pos, m.geom_quat
+  )
+
   d = d.replace(qpos=qpos, xanchor=xanchor, xaxis=xaxis, xpos=xpos)
   d = d.replace(xquat=xquat, xmat=xmat, xipos=xipos, ximat=ximat)
-
-  if m.ngeom:
-    geom_xpos, geom_xmat = local_to_global(
-        xpos[m.geom_bodyid], xquat[m.geom_bodyid], m.geom_pos, m.geom_quat
-    )
-    d = d.replace(geom_xpos=geom_xpos, geom_xmat=geom_xmat)
-
-  if m.nsite:
-    site_xpos, site_xmat = local_to_global(
-        xpos[m.site_bodyid], xquat[m.site_bodyid], m.site_pos, m.site_quat
-    )
-    d = d.replace(site_xpos=site_xpos, site_xmat=site_xmat)
+  d = d.replace(geom_xpos=geom_xpos, geom_xmat=geom_xmat)
 
   return d
 
@@ -133,7 +127,7 @@ def com_pos(m: Model, d: Data) -> Data:
   pos, mass = scan.body_tree(
       m, subtree_sum, 'bb', 'bb', d.xipos, m.body_mass, reverse=True
   )
-  cond = jp.tile(mass < jp.array(mujoco.mjMINVAL), (3, 1)).T
+  cond = jp.tile(mass < jp.tensor(mujoco.mjMINVAL), (3, 1)).T
   subtree_com = jp.where(cond, d.xipos, jax.vmap(jp.divide)(pos, mass))
   d = d.replace(subtree_com=subtree_com)
 
@@ -143,10 +137,10 @@ def com_pos(m: Model, d: Data) -> Data:
     h = jp.cross(off, -jp.eye(3))
     inert = ximat @ jp.diag(inert) @ ximat.T + h @ h.T * mass
     # cinert is triu(inert), mass * off, mass
-    inert = inert[(jp.array([0, 1, 2, 0, 0, 1]), jp.array([0, 1, 2, 1, 2, 2]))]
+    inert = inert[(jp.tensor([0, 1, 2, 0, 0, 1]), jp.tensor([0, 1, 2, 1, 2, 2]))]
     return jp.concatenate([inert, off * mass, jp.expand_dims(mass, 0)])
 
-  root_com = subtree_com[jp.array(m.body_rootid)]
+  root_com = subtree_com[jp.tensor(m.body_rootid)]
   offset = d.xipos - root_com
   cinert = inert_com(m.body_inertia, d.ximat, offset, m.body_mass)
   d = d.replace(cinert=cinert)
@@ -161,9 +155,9 @@ def com_pos(m: Model, d: Data) -> Data:
       offset = root_com - xanchor[i]
       if jnt_typ == JointType.FREE:
         cdofs.append(jp.eye(3, 6, 3))  # free translation
-        cdofs.append(jax.vmap(dof_com_fn, in_axes=(0, None))(xmat.T, offset))
+        cdofs.append(jax.vmap(dof_com_fn, (0, None))(xmat.T, offset))
       elif jnt_typ == JointType.BALL:
-        cdofs.append(jax.vmap(dof_com_fn, in_axes=(0, None))(xmat.T, offset))
+        cdofs.append(jax.vmap(dof_com_fn, (0, None))(xmat.T, offset))
       elif jnt_typ == JointType.HINGE:
         cdof = dof_com_fn(xaxis[i], offset)
         cdofs.append(jp.expand_dims(cdof, 0))
@@ -206,7 +200,7 @@ def crb(m: Model, d: Data) -> Data:
   d = d.replace(crb=crb_body)
 
   # TODO(erikfrey): do centralized take fn?
-  crb_dof = jp.take(crb_body, jp.array(m.dof_bodyid), axis=0)
+  crb_dof = jp.take(crb_body, jp.tensor(m.dof_bodyid), axis=0)
   crb_cdof = jax.vmap(math.inert_mul)(crb_dof, d.cdof)
 
   dof_i, dof_j, diag = [], [], []
@@ -217,12 +211,12 @@ def crb(m: Model, d: Data) -> Data:
       dof_i, dof_j = dof_i + [i], dof_j + [j]
       j = m.dof_parentid[j]
 
-  crb_codf_i = jp.take(crb_cdof, jp.array(dof_i), axis=0)
-  cdof_j = jp.take(d.cdof, jp.array(dof_j), axis=0)
+  crb_codf_i = jp.take(crb_cdof, jp.tensor(dof_i), axis=0)
+  cdof_j = jp.take(d.cdof, jp.tensor(dof_j), axis=0)
   qm = jax.vmap(jp.dot)(crb_codf_i, cdof_j)
 
   # add armature to diagonal
-  qm = qm.at[jp.array(diag)].add(m.dof_armature)
+  qm = qm.at[jp.tensor(diag)].add(m.dof_armature)
 
   d = d.replace(qM=qm)
 
@@ -232,13 +226,13 @@ def crb(m: Model, d: Data) -> Data:
 def factor_m(
     m: Model,
     d: Data,
-    qM: jax.Array,  # pylint:disable=invalid-name
+    qM: jax.Tensor,  # pylint:disable=invalid-name
 ) -> Data:
   """Gets sparse L'*D*L factorizaton of inertia-like matrix M, assumed spd."""
 
   # build up indices for where we will do backwards updates over qLD
   # TODO(erikfrey): do fewer updates by combining non-overlapping ranges
-  dof_madr = jp.array(m.dof_Madr)
+  dof_madr = jp.tensor(m.dof_Madr)
   updates = {}
   madr_ds = []
   for i in range(m.nv):
@@ -255,7 +249,7 @@ def factor_m(
   qld = qM
 
   for (out_beg, out_end), vals in sorted(updates.items(), reverse=True):
-    madr_d, madr_ij = jp.array(vals).T
+    madr_d, madr_ij = jp.tensor(vals).T
 
     @jax.vmap
     def off_diag_fn(madr_d, madr_ij, qld=qld, width=out_end - out_beg):
@@ -268,14 +262,14 @@ def factor_m(
     # qld = qld.at[dof_madr].set(jp.maximum(qld[dof_madr], _MJ_MINVAL))
 
   qld_diag = qld[dof_madr]
-  qld = (qld / qld[jp.array(madr_ds)]).at[dof_madr].set(qld_diag)
+  qld = (qld / qld[jp.tensor(madr_ds)]).at[dof_madr].set(qld_diag)
 
   d = d.replace(qLD=qld, qLDiagInv=1 / qld_diag)
 
   return d
 
 
-def solve_m(m: Model, d: Data, x: jax.Array) -> jax.Array:
+def solve_m(m: Model, d: Data, x: jax.Tensor) -> jax.Tensor:
   """Computes sparse backsubstitution:  x = inv(L'*D*L)*y ."""
 
   updates_i, updates_j = {}, {}
@@ -290,7 +284,7 @@ def solve_m(m: Model, d: Data, x: jax.Array) -> jax.Array:
 
   # x <- inv(L') * x
   for j, vals in sorted(updates_j.items(), reverse=True):
-    madr_ij, i = jp.array(vals).T
+    madr_ij, i = jp.tensor(vals).T
     x = x.at[j].add(-jp.sum(d.qLD[madr_ij] * x[i]))
 
   # x <- inv(D) * x
@@ -298,13 +292,13 @@ def solve_m(m: Model, d: Data, x: jax.Array) -> jax.Array:
 
   # x <- inv(L) * x
   for i, vals in sorted(updates_i.items()):
-    madr_ij, j = jp.array(vals).T
+    madr_ij, j = jp.tensor(vals).T
     x = x.at[i].add(-jp.sum(d.qLD[madr_ij] * x[j]))
 
   return x
 
 
-def dense_m(m: Model, d: Data) -> jax.Array:
+def dense_m(m: Model, d: Data) -> jax.Tensor:
   """Reconstitute dense mass matrix from qM."""
 
   is_, js, madr_ijs = [], [], []
@@ -317,20 +311,20 @@ def dense_m(m: Model, d: Data) -> jax.Array:
         break
       is_, js, madr_ijs = is_ + [i], js + [j], madr_ijs + [madr_ij]
 
-  i, j, madr_ij = (jp.array(x, dtype=jp.int32) for x in (is_, js, madr_ijs))
+  i, j, madr_ij = (jp.tensor(x, dtype=jp.int32) for x in (is_, js, madr_ijs))
 
   mat = jp.zeros((m.nv, m.nv)).at[(i, j)].set(d.qM[madr_ij])
 
   # diagonal, upper triangular, lower triangular
-  mat = jp.diag(d.qM[jp.array(m.dof_Madr)]) + mat + mat.T
+  mat = jp.diag(d.qM[jp.tensor(m.dof_Madr)]) + mat + mat.T
 
   return mat
 
 
-def mul_m(m: Model, d: Data, vec: jax.Array) -> jax.Array:
+def mul_m(m: Model, d: Data, vec: jax.Tensor) -> jax.Tensor:
   """Multiply vector by inertia matrix."""
 
-  diag_mul = d.qM[jp.array(m.dof_Madr)] * vec
+  diag_mul = d.qM[jp.tensor(m.dof_Madr)] * vec
 
   is_, js, madr_ijs = [], [], []
   for i in range(m.nv):
@@ -342,7 +336,7 @@ def mul_m(m: Model, d: Data, vec: jax.Array) -> jax.Array:
         break
       is_, js, madr_ijs = is_ + [i], js + [j], madr_ijs + [madr_ij]
 
-  i, j, madr_ij = (jp.array(x, dtype=jp.int32) for x in (is_, js, madr_ijs))
+  i, j, madr_ij = (jp.tensor(x, dtype=jp.int32) for x in (is_, js, madr_ijs))
 
   out = diag_mul.at[i].add(d.qM[madr_ij] * vec[j])
   out = out.at[j].add(d.qM[madr_ij] * vec[i])
@@ -357,7 +351,7 @@ def com_vel(m: Model, d: Data) -> Data:
   def fn(parent, jnt_typs, cdof, qvel):
     cvel = jp.zeros((6,)) if parent is None else parent[0]
 
-    cross_fn = jax.vmap(math.motion_cross, in_axes=(None, 0))
+    cross_fn = jax.vmap(math.motion_cross, (None, 0))
     cdof_x_qvel = jax.vmap(jp.multiply)(cdof, qvel)
 
     dof_beg = 0

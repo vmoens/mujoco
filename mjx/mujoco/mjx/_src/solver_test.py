@@ -17,7 +17,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
-import jax
+import torch as jax
 import mujoco
 from mujoco import mjx
 import numpy as np

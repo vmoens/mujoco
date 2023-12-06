@@ -14,12 +14,12 @@
 # ==============================================================================
 """Core non-smooth constraint functions."""
 
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple
 
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 import mujoco
-from mujoco.mjx._src import collision_driver
 from mujoco.mjx._src import math
 from mujoco.mjx._src import support
 # pylint: disable=g-importing-member
@@ -36,21 +36,21 @@ import numpy as np
 
 class _Efc(PyTreeNode):
   """Support data for creating constraint matrices."""
-  J: jax.Array
-  pos: jax.Array
-  pos_norm: jax.Array
-  invweight: jax.Array
-  solref: jax.Array
-  solimp: jax.Array
-  frictionloss: jax.Array
+  J: jax.Tensor
+  pos: jax.Tensor
+  pos_norm: jax.Tensor
+  invweight: jax.Tensor
+  solref: jax.Tensor
+  solimp: jax.Tensor
+  frictionloss: jax.Tensor
 
 
 def _kbi(
     m: Model,
-    solref: jax.Array,
-    solimp: jax.Array,
-    pos: jax.Array,
-) -> Tuple[jax.Array, jax.Array, jax.Array]:
+    solref: jax.Tensor,
+    solimp: jax.Tensor,
+    pos: jax.Tensor,
+) -> Tuple[jax.Tensor, jax.Tensor, jax.Tensor]:
   """Calculates stiffness, damping, and impedance of a constraint."""
   timeconst, dampratio = solref
 
@@ -277,13 +277,13 @@ def _instantiate_limit_slide_hinge(m: Model, d: Data) -> Optional[_Efc]:
 def _instantiate_contact(m: Model, d: Data) -> Optional[_Efc]:
   """Calculates constraint rows for contacts."""
 
-  if collision_driver.ncon(m) == 0:
+  if (m.opt.disableflags & DisableBit.CONTACT) or d.ncon == 0:
     return None
 
   @jax.vmap
   def fn(c: Contact):
     dist = c.dist - c.includemargin
-    geom_bodyid = jp.array(m.geom_bodyid)
+    geom_bodyid = jp.tensor(m.geom_bodyid)
     body1, body2 = geom_bodyid[c.geom1], geom_bodyid[c.geom2]
     diff = support.jac_dif_pair(m, d, c.pos, body1, body2)
     t = m.body_invweight0[body1, 0] + m.body_invweight0[body2, 0]
@@ -314,9 +314,7 @@ def _instantiate_contact(m: Model, d: Data) -> Optional[_Efc]:
   return _Efc(j, pos, pos, invweight, solref, solimp, frictionloss)
 
 
-def count_constraints(
-    m: Union[Model, mujoco.MjModel]
-) -> Tuple[int, int, int, int]:
+def count_constraints(m: Model, d: Data) -> Tuple[int, int, int, int]:
   """Returns equality, friction, limit, and contact constraint counts."""
   if m.opt.disableflags & DisableBit.CONSTRAINT:
     return 0, 0, 0, 0
@@ -336,13 +334,20 @@ def count_constraints(
   else:
     nl = int(m.jnt_limited.sum())
 
-  nc = collision_driver.ncon(m) * 4
+  if m.opt.disableflags & DisableBit.CONTACT:
+    nc = 0
+  else:
+    nc = d.ncon * 4
 
   return ne, nf, nl, nc
 
 
 def make_constraint(m: Model, d: Data) -> Data:
   """Creates constraint jacobians and other supporting data."""
+
+  ns = sum(count_constraints(m, d)[:-1])
+  # TODO(robotics-simulation): make device_put set nefc/efc_address instead
+  d = d.tree_replace({'contact.efc_address': np.arange(ns, ns + d.ncon * 4, 4)})
 
   if m.opt.disableflags & DisableBit.CONSTRAINT:
     efcs = ()
@@ -360,7 +365,7 @@ def make_constraint(m: Model, d: Data) -> Data:
   if not efcs:
     z = jp.empty(0)
     d = d.replace(efc_J=jp.empty((0, m.nv)))
-    d = d.replace(efc_D=z, efc_aref=z, efc_frictionloss=z)
+    d = d.replace(efc_D=z, efc_aref=z, efc_frictionloss=z, nefc=0)
     return d
 
   efc = jax.tree_map(lambda *x: jp.concatenate(x), *efcs)
@@ -374,6 +379,6 @@ def make_constraint(m: Model, d: Data) -> Data:
 
   aref, r = fn(efc)
   d = d.replace(efc_J=efc.J, efc_D=1 / r, efc_aref=aref)
-  d = d.replace(efc_frictionloss=efc.frictionloss)
+  d = d.replace(efc_frictionloss=efc.frictionloss, nefc=r.shape[0])
 
   return d

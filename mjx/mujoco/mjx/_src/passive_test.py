@@ -19,8 +19,8 @@ import itertools
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
-import jax
-import jax.numpy as jp
+import torch as jax
+import torch as jp
 import mujoco
 from mujoco import mjx
 import numpy as np

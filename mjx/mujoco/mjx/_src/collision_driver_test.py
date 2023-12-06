@@ -20,8 +20,8 @@ from typing import Dict, Optional, Tuple
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
-import jax
-import jax.numpy as jp
+import torch as jax
+import torch as jp
 import mujoco
 from mujoco import mjx
 from mujoco.mjx._src import collision_driver
@@ -253,6 +253,7 @@ class CapsuleCollisionTest(parameterized.TestCase):
     self.assertGreater(c.dist[1], 0)
     # extract the contact point with penetration
     c = jax.tree_map(lambda x: jp.take(x, 0, axis=0)[None], dx.contact)
+    c = c.replace(dim=c.dim[np.array([0])])
     for field in dataclasses.fields(Contact):
       _assert_attr_eq(c, d.contact, field.name, 'capsule_convex_edge', 1e-4)
 
@@ -279,7 +280,8 @@ class ConvexTest(absltest.TestCase):
     np.testing.assert_array_less(dx.contact.dist[:2], 0)
     np.testing.assert_array_less(-dx.contact.dist[2:], 0)
     # extract the contact points with penetration
-    c = jax.tree_map(lambda x: jp.take(x, jp.array([0, 1]), axis=0), dx.contact)
+    c = jax.tree_map(lambda x: jp.take(x, jp.tensor([0, 1]), axis=0), dx.contact)
+    c = c.replace(dim=c.dim[np.array([0, 1])])
     for field in dataclasses.fields(Contact):
       _assert_attr_eq(c, d.contact, field.name, 'box_plane', 1e-2)
 
@@ -337,6 +339,7 @@ class ConvexTest(absltest.TestCase):
     np.testing.assert_array_less(-dx.contact.dist[1:], 0)
     # extract the contact point with penetration
     c = jax.tree_map(lambda x: jp.take(x, 0, axis=0)[None], dx.contact)
+    c = c.replace(dim=c.dim[np.array([0])])
     for field in dataclasses.fields(Contact):
       _assert_attr_eq(c, d.contact, field.name, 'box_box_edge', 1e-2)
 
@@ -514,8 +517,8 @@ class TopKContactTest(absltest.TestCase):
     dx_all = collision_jit_fn(mx_all, dx)
     dx_top_k = collision_jit_fn(mx_top_k, dx)
 
-    self.assertEqual(dx_all.contact.dist.shape, (3,))
-    self.assertEqual(dx_top_k.contact.dist.shape, (2,))
+    self.assertEqual(dx_all.ncon, 3)
+    self.assertEqual(dx_top_k.ncon, 2)
 
 
 if __name__ == '__main__':

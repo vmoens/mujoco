@@ -16,8 +16,9 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 import mujoco
 from mujoco import mjx
 from mujoco.mjx._src import support
@@ -59,7 +60,7 @@ class SupportTest(parameterized.TestCase):
     xfrc = np.random.rand(*dx.xfrc_applied.shape)
 
     d.xfrc_applied[:] = xfrc
-    dx = dx.replace(xfrc_applied=jp.array(xfrc))
+    dx = dx.replace(xfrc_applied=jp.tensor(xfrc))
 
     qfrc = jax.jit(support.xfrc_accumulate)(mx, dx)
     qfrc_expected = np.zeros(m.nv)

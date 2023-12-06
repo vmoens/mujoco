@@ -16,13 +16,14 @@
 
 from typing import Optional, Tuple, Union
 
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 
 
 def norm(
-    x: jax.Array, axis: Optional[Union[Tuple[int, ...], int]] = None
-) -> jax.Array:
+    x: jax.Tensor, axis: Optional[Union[Tuple[int, ...], int]] = None
+) -> jax.Tensor:
   """Calculates a linalg.norm(x) that's safe for gradients at x=0.
 
   Avoids a poorly defined gradient for jnp.linal.norm(0) see
@@ -44,8 +45,8 @@ def norm(
 
 
 def normalize_with_norm(
-    x: jax.Array, axis: Optional[Union[Tuple[int, ...], int]] = None
-) -> Tuple[jax.Array, jax.Array]:
+    x: jax.Tensor, axis: Optional[Union[Tuple[int, ...], int]] = None
+) -> Tuple[jax.Tensor, jax.Tensor]:
   """Normalizes an array.
 
   Args:
@@ -61,8 +62,8 @@ def normalize_with_norm(
 
 
 def normalize(
-    x: jax.Array, axis: Optional[Union[Tuple[int, ...], int]] = None
-) -> jax.Array:
+    x: jax.Tensor, axis: Optional[Union[Tuple[int, ...], int]] = None
+) -> jax.Tensor:
   """Normalizes an array.
 
   Args:
@@ -75,7 +76,7 @@ def normalize(
   return normalize_with_norm(x, axis=axis)[0]
 
 
-def rotate(vec: jax.Array, quat: jax.Array) -> jax.Array:
+def rotate(vec: jax.Tensor, quat: jax.Tensor) -> jax.Tensor:
   """Rotates a vector vec by a unit quaternion quat.
 
   Args:
@@ -93,7 +94,7 @@ def rotate(vec: jax.Array, quat: jax.Array) -> jax.Array:
   return r
 
 
-def quat_inv(q: jp.ndarray) -> jp.ndarray:
+def quat_inv(q: jp.tensor) -> jp.tensor:
   """Calculates the inverse of quaternion q.
 
   Args:
@@ -102,17 +103,17 @@ def quat_inv(q: jp.ndarray) -> jp.ndarray:
   Returns:
     The inverse of q, where qmult(q, inv_quat(q)) = [1, 0, 0, 0].
   """
-  return q * jp.array([1, -1, -1, -1])
+  return q * jp.tensor([1, -1, -1, -1])
 
 
-def quat_sub(u: jax.Array, v: jax.Array) -> jax.Array:
+def quat_sub(u: jax.Tensor, v: jax.Tensor) -> jax.Tensor:
   """Subtracts two quaternions (u - v) as a 3D velocity."""
   q = quat_mul(quat_inv(v), u)
   axis, angle = quat_to_axis_angle(q)
   return axis * angle
 
 
-def quat_mul(u: jax.Array, v: jax.Array) -> jax.Array:
+def quat_mul(u: jax.Tensor, v: jax.Tensor) -> jax.Tensor:
   """Multiplies two quaternions.
 
   Args:
@@ -122,7 +123,7 @@ def quat_mul(u: jax.Array, v: jax.Array) -> jax.Array:
   Returns:
     A quaternion u * v.
   """
-  return jp.array([
+  return jp.tensor([
       u[0] * v[0] - u[1] * v[1] - u[2] * v[2] - u[3] * v[3],
       u[0] * v[1] + u[1] * v[0] + u[2] * v[3] - u[3] * v[2],
       u[0] * v[2] - u[1] * v[3] + u[2] * v[0] + u[3] * v[1],
@@ -130,7 +131,7 @@ def quat_mul(u: jax.Array, v: jax.Array) -> jax.Array:
   ])
 
 
-def quat_mul_axis(q: jax.Array, axis: jax.Array) -> jax.Array:
+def quat_mul_axis(q: jax.Tensor, axis: jax.Tensor) -> jax.Tensor:
   """Multiplies a quaternion and an axis.
 
   Args:
@@ -140,7 +141,7 @@ def quat_mul_axis(q: jax.Array, axis: jax.Array) -> jax.Array:
   Returns:
     A quaternion q * axis
   """
-  return jp.array([
+  return jp.tensor([
       -q[1] * axis[0] - q[2] * axis[1] - q[3] * axis[2],
       q[0] * axis[0] + q[2] * axis[2] - q[3] * axis[1],
       q[0] * axis[1] + q[3] * axis[0] - q[1] * axis[2],
@@ -149,11 +150,11 @@ def quat_mul_axis(q: jax.Array, axis: jax.Array) -> jax.Array:
 
 
 # TODO(erikfrey): benchmark this against brax's quat_to_3x3
-def quat_to_mat(q: jax.Array) -> jax.Array:
+def quat_to_mat(q: jax.Tensor) -> jax.Tensor:
   """Converts a quaternion into a 9-dimensional rotation matrix."""
   q = jp.outer(q, q)
 
-  return jp.array([
+  return jp.tensor([
       [
           q[0, 0] + q[1, 1] - q[2, 2] - q[3, 3],
           2 * (q[1, 2] - q[0, 3]),
@@ -172,7 +173,7 @@ def quat_to_mat(q: jax.Array) -> jax.Array:
   ])
 
 
-def quat_to_axis_angle(q: jax.Array) -> Tuple[jax.Array, jax.Array]:
+def quat_to_axis_angle(q: jax.Tensor) -> Tuple[jax.Tensor, jax.Tensor]:
   """Converts a quaternion into axis and angle."""
   axis, sin_a_2 = normalize_with_norm(q[1:])
   angle = 2 * jp.arctan2(sin_a_2, q[0])
@@ -181,7 +182,7 @@ def quat_to_axis_angle(q: jax.Array) -> Tuple[jax.Array, jax.Array]:
   return axis, angle
 
 
-def axis_angle_to_quat(axis: jax.Array, angle: jax.Array) -> jax.Array:
+def axis_angle_to_quat(axis: jax.Tensor, angle: jax.Tensor) -> jax.Tensor:
   """Provides a quaternion that describes rotating around axis by angle.
 
   Args:
@@ -195,7 +196,7 @@ def axis_angle_to_quat(axis: jax.Array, angle: jax.Array) -> jax.Array:
   return jp.insert(axis * s, 0, c)
 
 
-def quat_integrate(q: jax.Array, v: jax.Array, dt: jax.Array) -> jax.Array:
+def quat_integrate(q: jax.Tensor, v: jax.Tensor, dt: jax.Tensor) -> jax.Tensor:
   """Integrates a quaternion given angular velocity and dt."""
   v, norm_ = normalize_with_norm(v)
   angle = dt * norm_
@@ -204,7 +205,7 @@ def quat_integrate(q: jax.Array, v: jax.Array, dt: jax.Array) -> jax.Array:
   return normalize(q_res)
 
 
-def inert_mul(i: jax.Array, v: jax.Array) -> jax.Array:
+def inert_mul(i: jax.Tensor, v: jax.Tensor) -> jax.Tensor:
   """Multiply inertia by motion, producing force.
 
   Args:
@@ -214,14 +215,14 @@ def inert_mul(i: jax.Array, v: jax.Array) -> jax.Array:
   Returns:
     resultant force
   """
-  tri_id = jp.array([[0, 3, 4], [3, 1, 5], [4, 5, 2]])  # cinert inr order
+  tri_id = jp.tensor([[0, 3, 4], [3, 1, 5], [4, 5, 2]])  # cinert inr order
   inr, pos, mass = i[tri_id], i[6:9], i[9]
   ang = jp.dot(inr, v[:3]) + jp.cross(pos, v[3:])
   vel = mass * v[3:] - jp.cross(pos, v[:3])
   return jp.concatenate((ang, vel))
 
 
-def transform_motion(vel: jax.Array, offset: jax.Array, rotmat: jax.Array):
+def transform_motion(vel: jax.Tensor, offset: jax.Tensor, rotmat: jax.Tensor):
   """Transform spatial motion.
 
   Args:
@@ -269,9 +270,9 @@ def motion_cross_force(v, f):
   return jp.concatenate((ang, vel))
 
 
-def orthogonals(a: jax.Array) -> Tuple[jax.Array, jax.Array]:
+def orthogonals(a: jax.Tensor) -> Tuple[jax.Tensor, jax.Tensor]:
   """Returns orthogonal vectors `b` and `c`, given a vector `a`."""
-  y, z = jp.array([0, 1, 0]), jp.array([0, 0, 1])
+  y, z = jp.tensor([0, 1, 0]), jp.tensor([0, 0, 1])
   b = jp.where((-0.5 < a[1]) & (a[1] < 0.5), y, z)
   b = b - a * a.dot(b)
   # normalize b. however if a is a zero vector, zero b as well.
@@ -279,19 +280,19 @@ def orthogonals(a: jax.Array) -> Tuple[jax.Array, jax.Array]:
   return b, jp.cross(a, b)
 
 
-def make_frame(a: jax.Array) -> jax.Array:
+def make_frame(a: jax.Tensor) -> jax.Tensor:
   """Makes a right-handed 3D frame given a direction."""
   a = normalize(a)
   b, c = orthogonals(a)
-  return jp.array([a, b, c])
+  return jp.tensor([a, b, c])
 
 
 # Geometry.
 
 
 def closest_segment_point(
-    a: jax.Array, b: jax.Array, pt: jax.Array
-) -> jax.Array:
+    a: jax.Tensor, b: jax.Tensor, pt: jax.Tensor
+) -> jax.Tensor:
   """Returns the closest point on the a-b line segment to a point pt."""
   ab = b - a
   t = jp.dot(pt - a, ab) / (jp.dot(ab, ab) + 1e-6)
@@ -299,8 +300,8 @@ def closest_segment_point(
 
 
 def closest_segment_point_and_dist(
-    a: jax.Array, b: jax.Array, pt: jax.Array
-) -> Tuple[jax.Array, jax.Array]:
+    a: jax.Tensor, b: jax.Tensor, pt: jax.Tensor
+) -> Tuple[jax.Tensor, jax.Tensor]:
   """Returns closest point on the line segment and the distance squared."""
   closest = closest_segment_point(a, b, pt)
   dist = (pt - closest).dot(pt - closest)
@@ -308,8 +309,8 @@ def closest_segment_point_and_dist(
 
 
 def closest_segment_to_segment_points(
-    a0: jax.Array, a1: jax.Array, b0: jax.Array, b1: jax.Array
-) -> Tuple[jax.Array, jax.Array]:
+    a0: jax.Tensor, a1: jax.Tensor, b0: jax.Tensor, b1: jax.Tensor
+) -> Tuple[jax.Tensor, jax.Tensor]:
   """Returns closest points between two line segments."""
   # Gets the closest segment points by first finding the closest points
   # between two lines. Points are then clipped to be on the line segments

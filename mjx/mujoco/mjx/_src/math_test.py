@@ -16,7 +16,7 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
-import jax.numpy as jp
+import torch as jp
 from mujoco.mjx._src import math
 import numpy as np
 
@@ -43,7 +43,7 @@ def _get_rand_unit(seed: int):
   x = np.sin(phi) * np.cos(theta)
   y = np.sin(phi) * np.sin(theta)
   z = np.cos(phi)
-  return jp.array([x, y, z]).squeeze()
+  return jp.tensor([x, y, z]).squeeze()
 
 
 class OrthoganalsTest(parameterized.TestCase):
@@ -129,33 +129,33 @@ class ClosestSegmentSegmentPointsTest(parameterized.TestCase):
   """Tests for closest segment-to-segment points."""
 
   def test_closest_segments_points(self):
-    a0 = jp.array([0.73432405, 0.12372768, 0.20272314])
-    a1 = jp.array([1.10600128, 0.88555209, 0.65209485])
-    b0 = jp.array([0.85599262, 0.61736299, 0.9843583])
-    b1 = jp.array([1.84270939, 0.92891793, 1.36343326])
+    a0 = jp.tensor([0.73432405, 0.12372768, 0.20272314])
+    a1 = jp.tensor([1.10600128, 0.88555209, 0.65209485])
+    b0 = jp.tensor([0.85599262, 0.61736299, 0.9843583])
+    b1 = jp.tensor([1.84270939, 0.92891793, 1.36343326])
     best_a, best_b = math.closest_segment_to_segment_points(a0, a1, b0, b1)
     self.assertSequenceAlmostEqual(best_a, [1.09063, 0.85404, 0.63351], 5)
     self.assertSequenceAlmostEqual(best_b, [0.99596, 0.66156, 1.03813], 5)
 
   def test_intersecting_segments(self):
     """Tests segments that intersect."""
-    a0, a1 = jp.array([0.0, 0.0, -1.0]), jp.array([0.0, 0.0, 1.0])
-    b0, b1 = jp.array([-1.0, 0.0, 0.0]), jp.array([1.0, 0.0, 0.0])
+    a0, a1 = jp.tensor([0.0, 0.0, -1.0]), jp.tensor([0.0, 0.0, 1.0])
+    b0, b1 = jp.tensor([-1.0, 0.0, 0.0]), jp.tensor([1.0, 0.0, 0.0])
     best_a, best_b = math.closest_segment_to_segment_points(a0, a1, b0, b1)
     self.assertSequenceAlmostEqual(best_a, [0.0, 0.0, 0.0], 5)
     self.assertSequenceAlmostEqual(best_b, [0.0, 0.0, 0.0], 5)
 
   def test_intersecting_lines(self):
     """Tests that intersecting lines get clipped."""
-    a0, a1 = jp.array([0.2, 0.2, 0.0]), jp.array([1.0, 1.0, 0.0])
-    b0, b1 = jp.array([0.2, 0.4, 0.0]), jp.array([1.0, 2.0, 0.0])
+    a0, a1 = jp.tensor([0.2, 0.2, 0.0]), jp.tensor([1.0, 1.0, 0.0])
+    b0, b1 = jp.tensor([0.2, 0.4, 0.0]), jp.tensor([1.0, 2.0, 0.0])
     best_a, best_b = math.closest_segment_to_segment_points(a0, a1, b0, b1)
     self.assertSequenceAlmostEqual(best_a, [0.3, 0.3, 0.0], 2)
     self.assertSequenceAlmostEqual(best_b, [0.2, 0.4, 0.0], 2)
 
   def test_parallel_segments(self):
     """Tests that parallel segments have closest points at the midpoint."""
-    a0, a1 = jp.array([0.0, 0.0, -1.0]), jp.array([0.0, 0.0, 1.0])
+    a0, a1 = jp.tensor([0.0, 0.0, -1.0]), jp.tensor([0.0, 0.0, 1.0])
     b0, b1 = jp.array([1.0, 0.0, -1.0]), jp.array([1.0, 0.0, 1.0])
     best_a, best_b = math.closest_segment_to_segment_points(a0, a1, b0, b1)
     self.assertSequenceAlmostEqual(best_a, [0.0, 0.0, 0.0], 5)

@@ -19,13 +19,13 @@ import dataclasses
 from typing import Any, Dict, Iterable, List, Union, overload
 import warnings
 
-import jax
-from jax import numpy as jp
+import torch as jax
+# from jax import numpy as jp
+import torch as jp
 import mujoco
 from mujoco.mjx._src import collision_driver
 from mujoco.mjx._src import mesh
 from mujoco.mjx._src import types
-import numpy as np
 
 _MJ_TYPE_ATTR = {
     mujoco.mjtBias: (mujoco.MjModel.actuator_biastype,),
@@ -68,7 +68,7 @@ _TRANSFORMS = {
     (types.Data, 'ximat'): lambda x: x.reshape(x.shape[:-1] + (3, 3)),
     (types.Data, 'xmat'): lambda x: x.reshape(x.shape[:-1] + (3, 3)),
     (types.Data, 'geom_xmat'): lambda x: x.reshape(x.shape[:-1] + (3, 3)),
-    (types.Data, 'site_xmat'): lambda x: x.reshape(x.shape[:-1] + (3, 3)),
+    (types.Model, 'actuator_trnid'): lambda x: x[:, 0],
     (types.Contact, 'frame'): (
         lambda x: x.reshape(x.shape[:-1] + (3, 3))  # pylint: disable=g-long-lambda
         if x is not None and x.shape[0] else jp.zeros((0, 3, 3))
@@ -79,7 +79,6 @@ _INVERSE_TRANSFORMS = {
     (types.Data, 'ximat'): lambda x: x.reshape(x.shape[:-2] + (9,)),
     (types.Data, 'xmat'): lambda x: x.reshape(x.shape[:-2] + (9,)),
     (types.Data, 'geom_xmat'): lambda x: x.reshape(x.shape[:-2] + (9,)),
-    (types.Data, 'site_xmat'): lambda x: x.reshape(x.shape[:-2] + (9,)),
     (types.Contact, 'frame'): (
         lambda x: x.reshape(x.shape[:-2] + (9,))  # pylint: disable=g-long-lambda
         if x is not None and x.shape[0] else jp.zeros((0, 9))
@@ -91,6 +90,7 @@ _DERIVED = mesh.DERIVED.union(
     {(types.Data, 'efc_J'), (types.Option, 'has_fluid_params')}
 )
 
+jax.device_put = lambda x: x
 
 def _model_derived(value: mujoco.MjModel) -> Dict[str, Any]:
   return {k: jax.device_put(v) for k, v in mesh.get(value).items()}
@@ -200,7 +200,7 @@ def device_put(value):
     if (clz, f.name) in _TRANSFORMS:
       field_value = _TRANSFORMS[(clz, f.name)](field_value)
 
-    if f.type is jax.Array:
+    if f.type is jax.Tensor:
       field_value = jax.device_put(field_value)
     elif type(field_value) in _TYPE_MAP.keys():
       field_value = device_put(field_value)
@@ -246,7 +246,7 @@ def device_get_into(result, value):
   value = jax.device_get(value)
 
   if isinstance(result, list):
-    array_shapes = [s.shape for s in jax.tree_util.tree_flatten(value)[0]]
+    array_shapes = [s.shape for s in jax.utils._pytree.tree_flatten(value)[0]]
 
     if any(len(s) < 1 or s[0] != array_shapes[0][0] for s in array_shapes):
       raise ValueError('unrecognizable batch dimension in value')
@@ -265,16 +265,9 @@ def device_get_into(result, value):
 
   else:
     if isinstance(result, mujoco.MjData):
-      ncon = value.contact.dist.shape[0]
-      nefc = value.efc_J.shape[0]
       mujoco._functions._realloc_con_efc(  # pylint: disable=protected-access
-          result, ncon=ncon, nefc=nefc
+          result, ncon=value.ncon, nefc=value.nefc
       )
-      result.ncon = ncon
-      result.nefc = nefc
-      efc_start = nefc - ncon * 4
-      result.contact.efc_address[:] = np.arange(efc_start, nefc, 4)
-      result.contact.dim[:] = 3
 
     for f in dataclasses.fields(value):  # type: ignore
       if (type(value), f.name) in _DERIVED:
