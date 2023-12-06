@@ -19,6 +19,7 @@ from typing import Optional, Tuple, Union
 import torch as jax
 # from jax import numpy as jp
 import torch as jp
+import torch
 
 
 def norm(
@@ -35,8 +36,9 @@ def norm(
   Returns:
     Norm of the array x.
   """
-
-  is_zero = jp.allclose(x, 0.0)
+  # cannot vmap over torch.allclose
+  # is_zero = torch.allclose(x, torch.zeros_like(x))
+  is_zero = abs(x) < torch.finfo(x.dtype).resolution
   # temporarily swap x with ones if is_zero, then swap back
   x = jp.where(is_zero, jp.ones_like(x), x)
   n = jp.linalg.norm(x, axis=axis)
@@ -123,7 +125,7 @@ def quat_mul(u: jax.Tensor, v: jax.Tensor) -> jax.Tensor:
   Returns:
     A quaternion u * v.
   """
-  return jp.tensor([
+  return torch.stack([
       u[0] * v[0] - u[1] * v[1] - u[2] * v[2] - u[3] * v[3],
       u[0] * v[1] + u[1] * v[0] + u[2] * v[3] - u[3] * v[2],
       u[0] * v[2] - u[1] * v[3] + u[2] * v[0] + u[3] * v[1],
@@ -154,23 +156,19 @@ def quat_to_mat(q: jax.Tensor) -> jax.Tensor:
   """Converts a quaternion into a 9-dimensional rotation matrix."""
   q = jp.outer(q, q)
 
-  return jp.tensor([
+  return torch.stack(
       [
           q[0, 0] + q[1, 1] - q[2, 2] - q[3, 3],
           2 * (q[1, 2] - q[0, 3]),
           2 * (q[1, 3] + q[0, 2]),
-      ],
-      [
+
           2 * (q[1, 2] + q[0, 3]),
           q[0, 0] - q[1, 1] + q[2, 2] - q[3, 3],
           2 * (q[2, 3] - q[0, 1]),
-      ],
-      [
           2 * (q[1, 3] - q[0, 2]),
           2 * (q[2, 3] + q[0, 1]),
           q[0, 0] - q[1, 1] - q[2, 2] + q[3, 3],
-      ],
-  ])
+      ])
 
 
 def quat_to_axis_angle(q: jax.Tensor) -> Tuple[jax.Tensor, jax.Tensor]:

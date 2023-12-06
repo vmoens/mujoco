@@ -19,12 +19,14 @@ import dataclasses
 from typing import Any, Dict, Iterable, List, Union, overload
 import warnings
 
+import torch
 import torch as jax
 # from jax import numpy as jp
 import torch as jp
 import mujoco
 from mujoco.mjx._src import collision_driver
 from mujoco.mjx._src import mesh
+import numpy as np
 from mujoco.mjx._src import types
 
 _MJ_TYPE_ATTR = {
@@ -90,7 +92,15 @@ _DERIVED = mesh.DERIVED.union(
     {(types.Data, 'efc_J'), (types.Option, 'has_fluid_params')}
 )
 
-jax.device_put = lambda x: x
+def _device_put_torch(x):
+    if x is None:
+        return
+    try:
+        return torch.tensor(x)
+    except RuntimeError:
+        return torch.empty(x.shape if isinstance(x, np.ndarray) else len(x))
+
+torch.device_put = _device_put_torch
 
 def _model_derived(value: mujoco.MjModel) -> Dict[str, Any]:
   return {k: jax.device_put(v) for k, v in mesh.get(value).items()}

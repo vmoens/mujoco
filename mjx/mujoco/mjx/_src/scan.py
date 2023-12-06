@@ -26,6 +26,7 @@ from mujoco.mjx._src.types import TrnType
 # pylint: enable=g-importing-member
 import numpy as np
 from torch.utils._pytree import tree_map
+import torch
 
 Y = TypeVar('Y')
 
@@ -119,16 +120,12 @@ def _nvmap(f: Callable[..., Y], *args) -> Y:
   print('orig args', args)
   np_args = [a[0] if isinstance(a, np.ndarray) else None for a in args]
   args = [a if n is None else None for n, a in zip(np_args, args)]
-  if not any(item is not None for item in args):
-    return np_args
   in_axes = [None if a is None else 0 for a in args]
 
   def outer_f(*args, np_args=np_args):
     args = [a if n is None else n for n, a in zip(args, np_args)]
     return f(*args)
-  print('result args', args)
-  import jax as realjax
-  return realjax.vmap(outer_f, in_axes=in_axes)(*args)
+  return torch.vmap(outer_f, tuple(in_axes))(*args)
 
 
 def _check_input(m: Model, args: Any, in_types: str) -> None:
@@ -465,8 +462,9 @@ def body_tree(
     if len(out_types) > 1:
       y_typ = [y_[i] for y_ in y_typ]
     if typ != 'b':
-      y_typ = tree_map(jp.concatenate, y_typ)
-    y_typ = tree_map(lambda *x: jp.concatenate(x), *y_typ)
+      # tree_map(lambda x: print(x.shape), y_typ)
+      y_typ = torch.cat(y_typ, 1)
+    # y_typ = tree_map(lambda *x: jp.concatenate(x), *y_typ)
     y_take = np.argsort(np.concatenate([key_y_take[key][i] for key in keys]))
     _check_output(y_typ, y_take, typ, i)
     y.append(_take(y_typ, y_take))

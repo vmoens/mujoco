@@ -25,6 +25,7 @@ from mujoco.mjx._src.types import Data
 from mujoco.mjx._src.types import DisableBit
 from mujoco.mjx._src.types import JointType
 from mujoco.mjx._src.types import Model
+import torch
 # pylint: enable=g-importing-member
 
 
@@ -54,11 +55,11 @@ def kinematics(m: Model, d: Data) -> Data:
       if jnt_typ == JointType.FREE:
         pos = qpos[qpos_i : qpos_i + 3]
         quat = math.normalize(qpos[qpos_i + 3 : qpos_i + 7])
-        qpos = qpos.at[qpos_i + 3 : qpos_i + 7].set(quat)
+        qpos = torch.scatter(input=qpos, dim=0, index=torch.arange(qpos_i + 3, qpos_i + 7), src=quat)
         qpos_i += 7
       elif jnt_typ == JointType.BALL:
         qloc = math.normalize(qpos[qpos_i : qpos_i + 4])
-        qpos = qpos.at[qpos_i : qpos_i + 4].set(qloc)
+        qpos = torch.scatter(input=qpos, dim=0, index=torch.arange(qpos_i, qpos_i + 4), src=qloc)
         quat = math.quat_mul(quat, qloc)
         pos = anchor - math.rotate(jnt_pos[i], quat)  # off-center rotation
         qpos_i += 4
