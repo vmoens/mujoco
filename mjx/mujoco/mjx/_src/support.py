@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """Engine support functions."""
-
+import torch
 from typing import Tuple
 
 import torch as jax
@@ -34,8 +34,8 @@ def jac(
   mask = (jp.arange(m.nbody) == body_id) * 1
   mask = scan.body_tree(m, fn, 'b', 'b', mask, reverse=True)
   mask = mask[jp.tensor(m.dof_bodyid)] > 0
-
-  offset = point - d.subtree_com[jp.tensor(m.body_rootid)[body_id]]
+  print(d.subtree_com, 'index', torch.gather(jp.tensor(m.body_rootid), 0, body_id))
+  offset = point - d.subtree_com[torch.gather(jp.tensor(m.body_rootid), 0, body_id)]
   jacp = jax.vmap(lambda a, b=offset: a[3:] + jp.cross(a[:3], b))(d.cdof)
   jacp = jax.vmap(jp.multiply)(jacp, mask)
   jacr = jax.vmap(jp.multiply)(d.cdof[:, :3], mask)
@@ -71,6 +71,7 @@ def apply_ft(
 
 def xfrc_accumulate(m: Model, d: Data) -> jax.Tensor:
   """Accumulate xfrc_applied into a qfrc."""
+  print(type(m), type(d), type(d.xfrc_applied), type(d.xipos))
   qfrc = jax.vmap(apply_ft, (None, None, 0, 0, 0, 0))(
       m,
       d,

@@ -247,6 +247,8 @@ def motion_cross(u, v):
   Returns:
     resultant spatial motion
   """
+  print(u.dtype)
+  print(v.dtype)
   ang = jp.cross(u[:3], v[:3])
   vel = jp.cross(u[3:], v[:3]) + jp.cross(u[:3], v[3:])
   return jp.concatenate((ang, vel))

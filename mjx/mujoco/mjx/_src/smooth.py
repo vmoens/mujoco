@@ -356,10 +356,11 @@ def com_vel(m: Model, d: Data) -> Data:
 
   # forward scan down tree: accumulate link center of mass velocity
   def fn(parent, jnt_typs, cdof, qvel):
-    cvel = jp.zeros((6,)) if parent is None else parent[0]
+    cvel = jp.zeros((6,), dtype=cdof.dtype) if parent is None else parent[0]
 
     cross_fn = jax.vmap(math.motion_cross, (None, 0))
-    cdof_x_qvel = jax.vmap(jp.multiply)(cdof, qvel)
+    cdof_x_qvel = jax.vmap(torch.mul, (1, None), (1,))(cdof, qvel)
+    # cdof_x_qvel = cdof * qvel
 
     dof_beg = 0
     cdof_dots = []
@@ -403,7 +404,9 @@ def rne(m: Model, d: Data) -> Data:
       else:
         cacc = jp.concatenate((jp.zeros((3,)), -m.opt.gravity))
 
-    cacc += jp.sum(jax.vmap(jp.multiply)(cdof_dot, qvel), axis=0)
+    vm = jax.vmap(jp.multiply, (1, None), (1,))(cdof_dot, qvel)
+    vm_sum = torch.sum(vm, 0)
+    cacc = cacc + vm_sum
 
     return cacc
 
@@ -424,7 +427,7 @@ def rne(m: Model, d: Data) -> Data:
     return cfrc
 
   cfrc = scan.body_tree(m, cfrc_fn, 'b', 'b', loc_cfrc, reverse=True)
-  qfrc_bias = jax.vmap(jp.dot)(d.cdof, cfrc[jp.array(m.dof_bodyid)])
+  qfrc_bias = jax.vmap(jp.dot)(d.cdof, cfrc[torch.tensor(m.dof_bodyid)])
 
   d = d.replace(qfrc_bias=qfrc_bias)
 

@@ -447,10 +447,8 @@ def body_tree(
       take_fn = lambda x, i=_index(body_ids, parent_ids): _take(x, i)
       carry = tree_map(take_fn, y)
 
-    print('args', args)
     f_args = [_take(arg, ids) for arg, ids in zip(args, key_in_take[key])]
     key_y[key] = _nvmap(f, carry, *f_args)
-    print("key", key, "key_y", key_y)
 
   # slice None results from the final output
   keys = [k for k in keys if key_y[k] is not None]
@@ -461,12 +459,9 @@ def body_tree(
     y_typ = [key_y[key] for key in keys]
     if len(out_types) > 1:
       y_typ = [y_[i] for y_ in y_typ]
-    print("y_typ", y_typ)
     if typ != 'b':
       y_typ = tree_map(lambda x: torch.flatten(x, 0, 1), y_typ)
-      print("b case", y_typ)
     y_typ = torch.cat(y_typ)
-    print("after 2nd", y_typ)
     y_take = np.argsort(np.concatenate([key_y_take[key][i] for key in keys]))
     _check_output(y_typ, y_take, typ, i)
     y.append(_take(y_typ, y_take))
@@ -480,7 +475,10 @@ def segment_sum(data, segment_ids, num_segments=None):
   if not isinstance(segment_ids, torch.Tensor):
     segment_ids = torch.tensor(segment_ids, device=data.device)
   lengths = segment_ids.unique(return_counts=True)[1]
-  print(lengths)
+  if data.dtype is torch.long:
+    data = data.double()
+  # if lengths.dtype is torch.long:
+  #   lengths = lengths.to(torch.int)
   seg = torch.segment_reduce(data, reduce="sum", lengths=lengths, axis=0)
   if num_segments is not None:
     if num_segments <= seg.shape[0]:

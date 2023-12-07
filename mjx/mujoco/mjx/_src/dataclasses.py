@@ -65,14 +65,17 @@ def dataclass(clz: _T) -> _T:
       return to_tup(val) if isinstance(val, np.ndarray) else val
 
     def to_data(field, obj):
-      return (jax.tree_util.GetAttrKey(field.name), getattr(obj, field.name))
+      return (field.name, getattr(obj, field.name))
+      # import jax
+      # return (jax.tree_util.GetAttrKey(field.name), getattr(obj, field.name))
 
     data = tuple(to_data(f, x) for f in data_fields)
     meta = tuple(to_meta(f, x) for f in meta_fields)
+    if 'Statistic' in data_clz.__name__:
+      print('Statistic', data, meta)
     return data, meta
 
-  def clz_from_iterable(meta, data):
-
+  def clz_from_iterable(data, meta):
     def from_meta(field, meta):
       if field.type is np.ndarray:
         return (field.name, np.array(meta))
@@ -80,14 +83,12 @@ def dataclass(clz: _T) -> _T:
         return (field.name, meta)
 
     from_data = lambda field, meta: (field.name, meta)
-
     meta_args = tuple(from_meta(f, m) for f, m in zip(meta_fields, meta))
     data_args = tuple(from_data(f, m) for f, m in zip(data_fields, data))
-
     return data_clz(**dict(meta_args + data_args))
 
   jax.utils._pytree.register_pytree_node(
-      data_clz, iterate_clz_with_keys, clz_from_iterable
+      data_clz, flatten_fn=iterate_clz_with_keys, unflatten_fn=clz_from_iterable
   )
   # jax.utils._pytree.register_pytree_with_keys(
   #     data_clz, iterate_clz_with_keys, clz_from_iterable

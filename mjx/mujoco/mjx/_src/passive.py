@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """Passive forces."""
-
+import torch
 from typing import Tuple
 
 import torch as jax
@@ -49,7 +49,8 @@ def _inertia_box_fluid_model(
   offset = xipos - root_com
   lvel = math.transform_motion(cvel, offset, ximat)
   lwind = ximat.T @ m.opt.wind
-  lvel = lvel.at[3:].add(-lwind)
+  # lvel[3:] += -lwind  # or scatter
+  lvel = torch.scatter_add(lvel, 0, torch.arange(3, lvel.shape[0]), -lwind)
 
   # set viscous force and torque
   diam = jp.mean(box, axis=-1)
@@ -89,8 +90,20 @@ def passive(m: Model, d: Data) -> Data:
       qs = qpos_spring[qpos_i : qpos_i + jnt_typ.qpos_width()]
       qfrc = jp.zeros(jnt_typ.dof_width())
       if jnt_typ == JointType.FREE:
-        qfrc = qfrc.at[:3].set(-stiffness[i] * (q[:3] - qs[:3]))
-        qfrc = qfrc.at[3:6].set(-stiffness[i] * math.quat_sub(q[3:7], qs[3:7]))
+        # qfrc[:3] = -stiffness[i] * (q[:3] - qs[:3]) # or scatter
+        qfrc = torch.scatter(
+            input=qfrc,
+            dim=0,
+            index=torch.arange(0, 3, device=qfrc.device),
+            src=(-stiffness[i] * (q[:3] - qs[:3])).to(qfrc.dtype)
+            )
+        # qfrc[3:6] = -stiffness[i] * math.quat_sub(q[3:7], qs[3:7]) # or scatter
+        qfrc = torch.scatter(
+            input=qfrc,
+            dim=0,
+            index=torch.arange(3, 6, device=qfrc.device),
+            src=(-stiffness[i] * math.quat_sub(q[3:7], qs[3:7])).to(qfrc.dtype)
+            )
       elif jnt_typ == JointType.BALL:
         qfrc = -stiffness[i] * math.quat_sub(q, qs)
       elif jnt_typ in (
