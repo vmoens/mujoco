@@ -65,14 +65,14 @@ def dataclass(clz: _T) -> _T:
       return to_tup(val) if isinstance(val, np.ndarray) else val
 
     def to_data(field, obj):
-      return (field.name, getattr(obj, field.name))
+      # return (field.name, getattr(obj, field.name))
+      return getattr(obj, field.name)
       # import jax
       # return (jax.tree_util.GetAttrKey(field.name), getattr(obj, field.name))
 
     data = tuple(to_data(f, x) for f in data_fields)
     meta = tuple(to_meta(f, x) for f in meta_fields)
-    if 'Statistic' in data_clz.__name__:
-      print('Statistic', data, meta)
+    print(data_clz, "data", data)
     return data, meta
 
   def clz_from_iterable(data, meta):
