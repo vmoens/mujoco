@@ -289,6 +289,7 @@ def flat(
   f_ret_is_seq = isinstance(ys[0], (list, tuple))
   ys = ys if f_ret_is_seq else [[y] for y in ys]
   flat_ = {'j': 'b', 'u': 'uaj'}[group_by]
+  print('y, out_types', y, out_types)
   ys = [
       [v if typ in flat_ else jp.concatenate(v) for v, typ in zip(y, out_types)]
       for y in ys
@@ -435,11 +436,7 @@ def body_tree(
         id_map = _index(body_ids, parent_ids)
 
         def index_sum(x, i=id_map, s=body_ids.size):
-          print(x)
-          print(i)
-          print(s)
-          return torch.zeros(s).scatter_add(0, i, x)
-          # return jax.ops.segment_sum(x, i, s)
+          return segment_sum(x, i, s)
 
         y = tree_map(index_sum, y)
         carry = y if carry is None else tree_map(jp.add, carry, y)
@@ -478,3 +475,17 @@ def body_tree(
   y = y[0] if len(out_types) == 1 else y
 
   return y
+
+def segment_sum(data, segment_ids, num_segments=None):
+  # lengths = torch.repeat_interleave(torch.arange(segment_ids.shape[0]), segment_ids)
+  if not isinstance(segment_ids, torch.Tensor):
+    segment_ids = torch.tensor(segment_ids, device=data.device)
+  lengths = segment_ids.unique(return_counts=True)[1]
+  print(lengths)
+  seg = torch.segment_reduce(data, reduce="sum", lengths=lengths, axis=0)
+  if num_segments is not None:
+    if num_segments <= seg.shape[0]:
+      return seg[:num_segments]
+    else:
+      return torch.nn.functional.pad(seg, [0] * 2 * (seg.ndim - 1) + [0, num_segments-seg.shape[0]])
+  return seg

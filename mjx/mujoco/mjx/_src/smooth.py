@@ -135,11 +135,12 @@ def com_pos(m: Model, d: Data) -> Data:
   # map inertias to frame centered at subtree_com
   @jax.vmap
   def inert_com(inert, ximat, off, mass):
-    h = jp.cross(off, -jp.eye(3))
+    h = jp.cross(off.expand(3, 3), -jp.eye(3, dtype=off.dtype))
     inert = ximat @ jp.diag(inert) @ ximat.T + h @ h.T * mass
     # cinert is triu(inert), mass * off, mass
     inert = inert[(jp.tensor([0, 1, 2, 0, 0, 1]), jp.tensor([0, 1, 2, 1, 2, 2]))]
-    return jp.concatenate([inert, off * mass, jp.expand_dims(mass, 0)])
+    # return jp.concatenate([inert, off * mass, jp.expand_dims(mass, 0)])
+    return torch.cat([inert, off * mass, torch.unsqueeze(mass, 0)])
 
   root_com = subtree_com[jp.tensor(m.body_rootid)]
   offset = d.xipos - root_com
@@ -155,7 +156,8 @@ def com_pos(m: Model, d: Data) -> Data:
     for i, jnt_typ in enumerate(jnt_typs):
       offset = root_com - xanchor[i]
       if jnt_typ == JointType.FREE:
-        cdofs.append(jp.eye(3, 6, 3))  # free translation
+        cdofs.append(torch.eye(6, 6)[3:])  # free translation
+        # cdofs.append(jp.eye(3, 6, 3))  # free translation
         cdofs.append(jax.vmap(dof_com_fn, (0, None))(xmat.T, offset))
       elif jnt_typ == JointType.BALL:
         cdofs.append(jax.vmap(dof_com_fn, (0, None))(xmat.T, offset))
