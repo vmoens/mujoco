@@ -190,7 +190,9 @@ def axis_angle_to_quat(axis: jax.Tensor, angle: jax.Tensor) -> jax.Tensor:
     A quaternion that rotates around axis by angle
   """
   s, c = jp.sin(angle * 0.5), jp.cos(angle * 0.5)
-  return jp.insert(axis * s, 0, c)
+  # return jp.insert(axis * s, 0, c)
+  out = axis * s
+  return torch.cat([torch.zeros_like(out[:1]), out])
 
 
 def quat_integrate(q: jax.Tensor, v: jax.Tensor, dt: jax.Tensor) -> jax.Tensor:
@@ -247,8 +249,6 @@ def motion_cross(u, v):
   Returns:
     resultant spatial motion
   """
-  print(u.dtype)
-  print(v.dtype)
   ang = jp.cross(u[:3], v[:3])
   vel = jp.cross(u[3:], v[:3]) + jp.cross(u[:3], v[3:])
   return jp.concatenate((ang, vel))

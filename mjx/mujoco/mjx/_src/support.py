@@ -25,6 +25,17 @@ from mujoco.mjx._src.types import Data
 from mujoco.mjx._src.types import Model
 # pylint: enable=g-importing-member
 
+def vmap_compatible_index_select(tensor, dim, index):
+  from torch._C._functorch import is_batchedtensor, _remove_batch_dim, _add_batch_dim, _vmap_increment_nesting
+
+  is_batched = False
+  if isinstance(index, torch.Tensor) and is_batchedtensor(index):
+    index = _remove_batch_dim(index, 2, 0, 0)
+    is_batched = True
+  out = torch.index_select(tensor, dim, index)
+  if is_batched:
+    out = _add_batch_dim(out, 0, 2)
+  return out
 
 def jac(
     m: Model, d: Data, point: jax.Tensor, body_id: jax.Tensor
@@ -35,9 +46,10 @@ def jac(
   mask = scan.body_tree(m, fn, 'b', 'b', mask, reverse=True)
   mask = mask[jp.tensor(m.dof_bodyid)] > 0
 
-  index = torch.gather(jp.tensor(m.body_rootid), 0, body_id).long()
-  offset = point - torch.index_select(d.subtree_com, dim=0, index=index)
-  jacp = jax.vmap(lambda a, b=offset: a[3:] + torch.vmap(jp.cross, (None, 0))(a[:3], b))(d.cdof)
+  index = vmap_compatible_index_select(jp.tensor(m.body_rootid), dim=0, index=body_id).long()
+
+  offset = point - vmap_compatible_index_select(d.subtree_com, dim=0, index=index)
+  jacp = jax.vmap(lambda a, b=offset: a[3:] + jp.cross(a[:3], b))(d.cdof)
   jacp = jax.vmap(jp.multiply)(jacp, mask)
   jacr = jax.vmap(jp.multiply)(d.cdof[:, :3], mask)
 

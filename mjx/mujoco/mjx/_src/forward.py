@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """Forward step functions."""
-
+import torch
 import functools
 from typing import Optional, Sequence
 
@@ -270,7 +270,7 @@ def _euler(m: Model, d: Data) -> Data:
   qacc = d.qacc
   if not m.opt.disableflags & DisableBit.EULERDAMP:
     # TODO(robotics-simulation): can this be done with a smaller perf hit
-    mh = d.qM.at[m.dof_Madr].add(m.opt.timestep * m.dof_damping)
+    mh = torch.scatter_add(d.qM, dim=0, index=torch.tensor(m.dof_Madr, dtype=torch.long), src=m.opt.timestep * m.dof_damping)
     dh = smooth.factor_m(m, d, mh)
     qfrc = d.qfrc_smooth + d.qfrc_constraint
     qacc = smooth.solve_m(m, dh, qfrc)

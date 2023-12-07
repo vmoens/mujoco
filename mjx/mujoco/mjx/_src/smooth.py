@@ -292,7 +292,7 @@ def solve_m(m: Model, d: Data, x: jax.Tensor) -> jax.Tensor:
   # x <- inv(L') * x
   for j, vals in sorted(updates_j.items(), reverse=True):
     madr_ij, i = jp.tensor(vals).T
-    x = x.at[j].add(-jp.sum(d.qLD[madr_ij] * x[i]))
+    x = torch.scatter_add(x, index=torch.tensor(j, dtype=torch.long), dim=0, src=-jp.sum(d.qLD[madr_ij] * x[i]))
 
   # x <- inv(D) * x
   x = x * d.qLDiagInv
@@ -300,7 +300,8 @@ def solve_m(m: Model, d: Data, x: jax.Tensor) -> jax.Tensor:
   # x <- inv(L) * x
   for i, vals in sorted(updates_i.items()):
     madr_ij, j = jp.tensor(vals).T
-    x = x.at[i].add(-jp.sum(d.qLD[madr_ij] * x[j]))
+    # x = x.at[i].add(-jp.sum(d.qLD[madr_ij] * x[j]))
+    x = torch.scatter_add(x, index=torch.tensor(i, dtype=torch.long), dim=0, src=-jp.sum(d.qLD[madr_ij] * x[j]))
 
   return x
 
@@ -320,7 +321,8 @@ def dense_m(m: Model, d: Data) -> jax.Tensor:
 
   i, j, madr_ij = (jp.tensor(x, dtype=jp.int32) for x in (is_, js, madr_ijs))
 
-  mat = jp.zeros((m.nv, m.nv)).at[(i, j)].set(d.qM[madr_ij])
+  mat = jp.zeros((m.nv, m.nv))
+  mat[(i, j)] = d.qM[madr_ij]
 
   # diagonal, upper triangular, lower triangular
   mat = jp.diag(d.qM[jp.tensor(m.dof_Madr)]) + mat + mat.T
@@ -367,9 +369,9 @@ def com_vel(m: Model, d: Data) -> Data:
     for jnt_typ in jnt_typs:
       dof_end = dof_beg + JointType(jnt_typ).dof_width()
       if jnt_typ == JointType.FREE:
-        cvel += jp.sum(cdof_x_qvel[:3], axis=0)
+        cvel = cvel + jp.sum(cdof_x_qvel[:3], axis=0)
         cdof_ang_dot = cross_fn(cvel, cdof[3:])
-        cvel += jp.sum(cdof_x_qvel[3:], axis=0)
+        cvel = cvel + jp.sum(cdof_x_qvel[3:], axis=0)
         cdof_dots.append(jp.concatenate((jp.zeros((3, 6)), cdof_ang_dot)))
       else:
         cdof_dots.append(cross_fn(cvel, cdof[dof_beg:dof_end]))

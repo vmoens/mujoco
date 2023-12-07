@@ -117,7 +117,6 @@ def _nvmap(f: Callable[..., Y], *args) -> Y:
       raise RuntimeError(f'numpy arg elements do not match: {arg}')
 
   # np_args = [a[0] if isinstance(a, np.ndarray) else None for a in args]
-  print('orig args', args)
   np_args = [a[0] if isinstance(a, np.ndarray) else None for a in args]
   args = [a if n is None else None for n, a in zip(np_args, args)]
   in_axes = [None if a is None else 0 for a in args]
@@ -420,7 +419,6 @@ def body_tree(
 
   # use this grouping to take the right data subsets and call vmap(f)
   keys = sorted(key_body_ids, reverse=reverse)
-  print('keys', keys)
   key_y = {}
   for key in keys:
     carry = None

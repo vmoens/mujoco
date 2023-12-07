@@ -64,8 +64,8 @@ def _inertia_box_fluid_model(
       box[1] * (box[0] ** 4 + box[2] ** 4),
       box[2] * (box[0] ** 4 + box[1] ** 4),
   ])
-  lfrc_vel -= 0.5 * m.opt.density * scale_vel * jp.abs(lvel[3:]) * lvel[3:]
-  lfrc_ang -= (
+  lfrc_vel = lfrc_vel - 0.5 * m.opt.density * scale_vel * jp.abs(lvel[3:]) * lvel[3:]
+  lfrc_ang = lfrc_ang - (
       1.0 * m.opt.density * scale_ang * jp.abs(lvel[:3]) * lvel[:3] / 64.0
   )
 
@@ -114,7 +114,7 @@ def passive(m: Model, d: Data) -> Data:
       else:
         raise RuntimeError(f'unrecognized joint type: {jnt_typ}')
       qfrcs.append(qfrc)
-      qpos_i += jnt_typ.qpos_width()
+      qpos_i = qpos_i + jnt_typ.qpos_width()
     return jp.concatenate(qfrcs)
 
   qfrc_passive = scan.flat(
@@ -129,7 +129,7 @@ def passive(m: Model, d: Data) -> Data:
   )
 
   # dof-level dampers
-  qfrc_passive -= m.dof_damping * d.qvel
+  qfrc_passive = qfrc_passive - m.dof_damping * d.qvel
 
   # TODO(robotics-simulation): body-level gravity compensation
 
@@ -149,7 +149,7 @@ def passive(m: Model, d: Data) -> Data:
     qfrc_target = jax.vmap(support.apply_ft, (None, None, 0, 0, 0, 0))(
         m, d, force, torque, d.xipos, jp.arange(m.nbody)
     )
-    qfrc_passive += jp.sum(qfrc_target, axis=0)
+    qfrc_passive = qfrc_passive + jp.sum(qfrc_target, axis=0)
 
   d = d.replace(qfrc_passive=qfrc_passive)
   return d

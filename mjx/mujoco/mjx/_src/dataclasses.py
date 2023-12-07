@@ -72,7 +72,6 @@ def dataclass(clz: _T) -> _T:
 
     data = tuple(to_data(f, x) for f in data_fields)
     meta = tuple(to_meta(f, x) for f in meta_fields)
-    print(data_clz, "data", data)
     return data, meta
 
   def clz_from_iterable(data, meta):

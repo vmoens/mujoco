@@ -28,6 +28,7 @@ from mujoco.mjx._src.types import Data
 from mujoco.mjx._src.types import DisableBit
 from mujoco.mjx._src.types import Model
 from mujoco.mjx._src.types import SolverType
+import torch
 # pylint: enable=g-importing-member
 
 
@@ -183,7 +184,9 @@ def _update_constraint(m: Model, d: Data, ctx: _Context) -> _Context:
   # TODO(robotics-team): add friction constraints
 
   # only count active constraints
-  active = (ctx.Jaref < 0).at[:d.ne + d.nf].set(True)
+  # active = (ctx.Jaref < 0).at[:d.ne + d.nf].set(True)
+  active = (ctx.Jaref < 0)
+  active[:d.ne + d.nf] = True
 
   efc_force = d.efc_D * -ctx.Jaref * active
   qfrc_constraint = d.efc_J.T @ efc_force
@@ -222,11 +225,15 @@ def _update_gradient(m: Model, d: Data, ctx: _Context) -> _Context:
   if m.opt.solver == SolverType.CG:
     mgrad = smooth.solve_m(m, d, grad)
   elif m.opt.solver == SolverType.NEWTON:
-    active = (ctx.Jaref < 0).at[:d.ne + d.nf].set(True)
+    # active = (ctx.Jaref < 0).at[:d.ne + d.nf].set(True)
+    active = (ctx.Jaref < 0)
+    active[:d.ne + d.nf] = True
     h = (d.efc_J.T * d.efc_D * active) @ d.efc_J
     h = smooth.dense_m(m, d) + h
-    h_ = jax.scipy.linalg.cho_factor(h)
-    mgrad = jax.scipy.linalg.cho_solve(h_, grad)
+    # h_ = jax.scipy.linalg.cho_factor(h)
+    h_ = torch.linalg.cholesky(h, upper=True)
+    # mgrad = jax.scipy.linalg.cho_solve(h_, grad)
+    mgrad = torch.linalg.solve_triangular(h_, grad.unsqueeze(-1), upper=True).squeeze(-1)
   else:
     raise NotImplementedError(f"unsupported solver type: {m.opt.solver}")
 
@@ -329,7 +336,7 @@ def solve(m: Model, d: Data) -> Data:
 
   def cond(ctx: _Context) -> jax.Tensor:
     improvement = _rescale(m, ctx.prev_cost - ctx.cost)
-    gradient = _rescale(m, math.norm(ctx.grad))
+    gradient = _rescale(m, torch.norm(ctx.grad))
 
     done = ctx.solver_niter >= m.opt.iterations
     done |= improvement < m.opt.tolerance
@@ -364,7 +371,10 @@ def solve(m: Model, d: Data) -> Data:
   if m.opt.iterations == 1:
     ctx = body(ctx)
   else:
-    ctx = jax.lax.while_loop(cond, body, ctx)
+    while cond(ctx):
+      ctx = body(ctx)
+      cond(ctx)
+    # ctx = jax.lax.while_loop(cond, body, ctx)
 
   d = d.replace(
       qacc_warmstart=ctx.qacc,
