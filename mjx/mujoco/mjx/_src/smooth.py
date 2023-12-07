@@ -260,12 +260,7 @@ def factor_m(
     def off_diag_fn(madr_d, madr_ij, qld=qld, width=out_end - out_beg):
       # qld_row = jax.lax.dynamic_slice(qld, (madr_ij,), (width,))
       qld_row = dynamic_slice(qld, (madr_ij,), (width,))
-      # we need to remove the batch dims from madr_d
-      from torch._C._functorch import _remove_batch_dim, is_batchedtensor
-
-      while is_batchedtensor(madr_d):
-        madr_d = _remove_batch_dim(madr_d, 2, 1, 0)
-      return -(qld_row[0] / qld[madr_d]) * qld_row
+      return -(qld_row[0] / torch.gather(qld, 0, madr_d)) * qld_row
 
     qld_update = jp.sum(off_diag_fn(madr_d, madr_ij), axis=0)
     qld[out_beg:out_end] += qld_update # or scatter_add
@@ -485,16 +480,16 @@ def dynamic_slice(operand, start_indices, slice_sizes):
   # It isn't necessarily true for start (one can start at index 0 and 1) but it
   # must be true for the slice index (we cannot have a length of 10 in one dim
   # and 11 in the other, the resulting unbatched tensor would not be rectangular).
-  from torch._C._functorch import _remove_batch_dim, is_batchedtensor
+  from torch._C._functorch import is_batchedtensor
 
   def make_slice(start, interval):
-    while is_batchedtensor(start):
-      print(start)
-      start = _remove_batch_dim(start, 2, 1, 0)
-    while is_batchedtensor(interval):
-      print(interval)
-      interval = _remove_batch_dim(interval, 2, 1, 0)
-    return slice(start.item(), (start + interval).item())
-  slices = tuple(make_slice(start, start+size) for start, size in zip(start_indices, slice_sizes))
-  print("slices", slices)
+    if not is_batchedtensor(start):
+      return slice(start.item(), (start + interval).item())
+    else:
+      idx = [start]
+      for i in range(1, interval):
+        idx.append(start + i)
+      idx = torch.stack(idx, -1)
+      return idx
+  slices = tuple(make_slice(start, size) for start, size in zip(start_indices, slice_sizes))
   return operand[slices]
