@@ -289,9 +289,8 @@ def flat(
   f_ret_is_seq = isinstance(ys[0], (list, tuple))
   ys = ys if f_ret_is_seq else [[y] for y in ys]
   flat_ = {'j': 'b', 'u': 'uaj'}[group_by]
-  print('y, out_types', y, out_types)
   ys = [
-      [v if typ in flat_ else jp.concatenate(v) for v, typ in zip(y, out_types)]
+      [v if typ in flat_ else torch.flatten(v, 0, 1) for v, typ in zip(y, out_types)]
       for y in ys
   ]
   ys = tree_map(lambda *x: jp.concatenate(x), *ys)

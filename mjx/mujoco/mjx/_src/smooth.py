@@ -199,11 +199,13 @@ def crb(m: Model, d: Data) -> Data:
     return crb_body
 
   crb_body = scan.body_tree(m, crb_fn, 'b', 'b', d.cinert, reverse=True)
-  crb_body = crb_body.at[0].set(0.0)
+  # crb_body = crb_body.at[0].set(0.0)
+  crb_body[0] = 0.0 # or scatter
   d = d.replace(crb=crb_body)
 
   # TODO(erikfrey): do centralized take fn?
-  crb_dof = jp.take(crb_body, jp.tensor(m.dof_bodyid), axis=0)
+  # crb_dof = jp.take(crb_body, jp.tensor(m.dof_bodyid), axis=0)
+  crb_dof = crb_body[torch.tensor(m.dof_bodyid)]
   crb_cdof = jax.vmap(math.inert_mul)(crb_dof, d.cdof)
 
   dof_i, dof_j, diag = [], [], []
@@ -214,12 +216,12 @@ def crb(m: Model, d: Data) -> Data:
       dof_i, dof_j = dof_i + [i], dof_j + [j]
       j = m.dof_parentid[j]
 
-  crb_codf_i = jp.take(crb_cdof, jp.tensor(dof_i), axis=0)
-  cdof_j = jp.take(d.cdof, jp.tensor(dof_j), axis=0)
+  crb_codf_i = crb_cdof[jp.tensor(dof_i)]
+  cdof_j = d.cdof[jp.tensor(dof_j)]
   qm = jax.vmap(jp.dot)(crb_codf_i, cdof_j)
 
   # add armature to diagonal
-  qm = qm.at[jp.tensor(diag)].add(m.dof_armature)
+  qm[jp.tensor(diag)] = qm[jp.tensor(diag)] + m.dof_armature # or scatter_add
 
   d = d.replace(qM=qm)
 
@@ -256,16 +258,23 @@ def factor_m(
 
     @jax.vmap
     def off_diag_fn(madr_d, madr_ij, qld=qld, width=out_end - out_beg):
-      qld_row = jax.lax.dynamic_slice(qld, (madr_ij,), (width,))
+      # qld_row = jax.lax.dynamic_slice(qld, (madr_ij,), (width,))
+      qld_row = dynamic_slice(qld, (madr_ij,), (width,))
+      # we need to remove the batch dims from madr_d
+      from torch._C._functorch import _remove_batch_dim, is_batchedtensor
+
+      while is_batchedtensor(madr_d):
+        madr_d = _remove_batch_dim(madr_d, 2, 1, 0)
       return -(qld_row[0] / qld[madr_d]) * qld_row
 
     qld_update = jp.sum(off_diag_fn(madr_d, madr_ij), axis=0)
-    qld = qld.at[out_beg:out_end].add(qld_update)
+    qld[out_beg:out_end] += qld_update # or scatter_add
     # TODO(erikfrey): determine if this minimum value guarding is necessary:
     # qld = qld.at[dof_madr].set(jp.maximum(qld[dof_madr], _MJ_MINVAL))
 
   qld_diag = qld[dof_madr]
-  qld = (qld / qld[jp.tensor(madr_ds)]).at[dof_madr].set(qld_diag)
+  qld = (qld / qld[jp.tensor(madr_ds)])
+  qld[dof_madr] = qld_diag
 
   d = d.replace(qLD=qld, qLDiagInv=1 / qld_diag)
 
@@ -469,3 +478,23 @@ def transmission(m: Model, d: Data) -> Data:
   length = length.reshape((m.nu,))
   d = d.replace(actuator_length=length, actuator_moment=moment)
   return d
+
+def dynamic_slice(operand, start_indices, slice_sizes):
+  """Torch version of jax.lax.dynamic_slice."""
+  # we must assume that even if indices are batched tensors, they only contain one element
+  # It isn't necessarily true for start (one can start at index 0 and 1) but it
+  # must be true for the slice index (we cannot have a length of 10 in one dim
+  # and 11 in the other, the resulting unbatched tensor would not be rectangular).
+  from torch._C._functorch import _remove_batch_dim, is_batchedtensor
+
+  def make_slice(start, interval):
+    while is_batchedtensor(start):
+      print(start)
+      start = _remove_batch_dim(start, 2, 1, 0)
+    while is_batchedtensor(interval):
+      print(interval)
+      interval = _remove_batch_dim(interval, 2, 1, 0)
+    return slice(start.item(), (start + interval).item())
+  slices = tuple(make_slice(start, start+size) for start, size in zip(start_indices, slice_sizes))
+  print("slices", slices)
+  return operand[slices]

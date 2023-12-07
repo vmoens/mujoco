@@ -214,7 +214,7 @@ def inert_mul(i: jax.Tensor, v: jax.Tensor) -> jax.Tensor:
   """
   tri_id = jp.tensor([[0, 3, 4], [3, 1, 5], [4, 5, 2]])  # cinert inr order
   inr, pos, mass = i[tri_id], i[6:9], i[9]
-  ang = jp.dot(inr, v[:3]) + jp.cross(pos, v[3:])
+  ang = torch.vmap(torch.dot, (0, None))(inr, v[:3]) + torch.dot(pos, v[3:])
   vel = mass * v[3:] - jp.cross(pos, v[:3])
   return jp.concatenate((ang, vel))
 
