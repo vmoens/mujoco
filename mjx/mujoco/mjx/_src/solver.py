@@ -124,8 +124,9 @@ class _LSPoint(PyTreeNode):
     # roughly corresponds to CGEval in mujoco/src/engine/engine_solver.c
 
     # TODO(robotics-team): change this to support friction constraints
-    active = ((ctx.Jaref + alpha * jv) < 0).at[:d.ne + d.nf].set(True)
-    quad = jax.vmap(jp.multiply)(quad, active)  # only active
+    active = ((ctx.Jaref + alpha * jv) < 0)
+    active[:d.ne + d.nf] = True
+    quad = jax.vmap(jp.multiply, (1, None), (1,))(quad, active)  # only active
     quad_total = quad_gauss + jp.sum(quad, axis=0)
 
     cost = alpha * alpha * quad_total[2] + alpha * quad_total[1] + quad_total[0]
@@ -160,10 +161,12 @@ def _while_loop_scan(cond_fun, body_fun, init_val, max_iter):
   def _fun(tup, it):
     val, cond = tup
     # When cond is met, we start doing no-ops.
-    return jax.lax.cond(cond, _iter, lambda x: (x, False), val), it
+    # return jax.lax.cond(cond, _iter, lambda x: (x, False), val), it
+    return condfun(cond, _iter, lambda x: (x, False), val), it
 
   init = (init_val, cond_fun(init_val))
-  return jax.lax.scan(_fun, init, None, length=max_iter)[0][0]
+  # return jax.lax.scan(_fun, init, None, length=max_iter)[0][0]
+  return scan(_fun, init, None, length=max_iter)[0][0]
 
 
 def _update_constraint(m: Model, d: Data, ctx: _Context) -> _Context:
@@ -257,6 +260,8 @@ def _linesearch(m: Model, d: Data, ctx: _Context) -> _Context:
   Returns:
     updated context with new qacc, Ma, Jaref
   """
+  from torch._C._functorch import is_batchedtensor, _remove_batch_dim, _add_batch_dim, _vmap_increment_nesting
+
   smag = math.norm(ctx.search) * m.stat.meaninertia * max(1, m.nv)
   gtol = m.opt.tolerance * m.opt.ls_tolerance * smag
 
@@ -277,11 +282,13 @@ def _linesearch(m: Model, d: Data, ctx: _Context) -> _Context:
 
   def cond(ctx: _LSContext) -> jax.Tensor:
     done = ctx.ls_iter >= m.opt.ls_iterations
-    done |= ~ctx.swap  # if we did not adjust the interval
-    done |= (ctx.lo.deriv_0 < 0) & (ctx.lo.deriv_0 > -gtol)
-    done |= (ctx.hi.deriv_0 > 0) & (ctx.hi.deriv_0 < gtol)
+    done = done | (~ctx.swap)  # if we did not adjust the interval
+    done = done | ((ctx.lo.deriv_0 < 0) & (ctx.lo.deriv_0 > -gtol))
+    done = done | ((ctx.hi.deriv_0 > 0) & (ctx.hi.deriv_0 < gtol))
 
-    return ~done
+    while is_batchedtensor(done):
+      done = _remove_batch_dim(done, 1, 0, 0)
+    return not done.all().item()
 
   def body(ctx: _LSContext) -> _LSContext:
     # always compute new bracket boundaries and a midpoint
@@ -294,14 +301,14 @@ def _linesearch(m: Model, d: Data, ctx: _Context) -> _Context:
     # 1) they are not correctly at a bracket boundary (e.g. lo.deriv_0 > 0), OR
     # 2) if moving to next or mid narrows the bracket
     swap_lo_next = (lo.deriv_0 > 0) | (lo.deriv_0 < lo_next.deriv_0)
-    lo = jax.tree_map(lambda x, y: jp.where(swap_lo_next, y, x), lo, lo_next)
+    lo = torch.utils._pytree.tree_map(lambda x, y: jp.where(swap_lo_next, y, x), lo, lo_next)
     swap_lo_mid = (mid.deriv_0 < 0) & (lo.deriv_0 < mid.deriv_0)
-    lo = jax.tree_map(lambda x, y: jp.where(swap_lo_mid, y, x), lo, mid)
+    lo = torch.utils._pytree.tree_map(lambda x, y: jp.where(swap_lo_mid, y, x), lo, mid)
 
     swap_hi_next = (hi.deriv_0 < 0) | (hi.deriv_0 > hi_next.deriv_0)
-    hi = jax.tree_map(lambda x, y: jp.where(swap_hi_next, y, x), hi, hi_next)
+    hi = torch.utils._pytree.tree_map(lambda x, y: jp.where(swap_hi_next, y, x), hi, hi_next)
     swap_hi_mid = (mid.deriv_0 > 0) & (hi.deriv_0 > mid.deriv_0)
-    hi = jax.tree_map(lambda x, y: jp.where(swap_hi_mid, y, x), hi, mid)
+    hi = torch.utils._pytree.tree_map(lambda x, y: jp.where(swap_hi_mid, y, x), hi, mid)
 
     swap = swap_lo_next | swap_lo_mid | swap_hi_next | swap_hi_mid
 
@@ -313,8 +320,8 @@ def _linesearch(m: Model, d: Data, ctx: _Context) -> _Context:
   p0 = point_fn(jp.tensor(0.0))
   lo = point_fn(p0.alpha - p0.deriv_0 / p0.deriv_1)
   lesser_fn = lambda x, y: jp.where(lo.deriv_0 < p0.deriv_0, x, y)
-  hi = jax.tree_map(lesser_fn, p0, lo)
-  lo = jax.tree_map(lesser_fn, lo, p0)
+  hi = torch.utils._pytree.tree_map(lesser_fn, p0, lo)
+  lo = torch.utils._pytree.tree_map(lesser_fn, lo, p0)
   ls_ctx = _LSContext(lo=lo, hi=hi, swap=jp.tensor(True), ls_iter=0)
   ls_ctx = _while_loop_scan(cond, body, ls_ctx, m.opt.ls_iterations)
 
@@ -333,16 +340,18 @@ def _linesearch(m: Model, d: Data, ctx: _Context) -> _Context:
 
 def solve(m: Model, d: Data) -> Data:
   """Finds forces that satisfy constraints using conjugate gradient descent."""
+  from torch._C._functorch import is_batchedtensor, _remove_batch_dim, _add_batch_dim, _vmap_increment_nesting
 
   def cond(ctx: _Context) -> jax.Tensor:
     improvement = _rescale(m, ctx.prev_cost - ctx.cost)
     gradient = _rescale(m, torch.norm(ctx.grad))
 
     done = ctx.solver_niter >= m.opt.iterations
-    done |= improvement < m.opt.tolerance
-    done |= gradient < m.opt.tolerance
-
-    return ~done
+    done = done | (improvement < m.opt.tolerance)
+    done = done | (gradient < m.opt.tolerance)
+    while is_batchedtensor(done):
+      done = _remove_batch_dim(done, 1, 0, 0)
+    return not done.all().item()
 
   def body(ctx: _Context) -> _Context:
     ctx = _linesearch(m, d, ctx)
@@ -352,8 +361,10 @@ def solve(m: Model, d: Data) -> Data:
 
     # polak-ribiere:
     beta = jp.dot(ctx.grad, ctx.Mgrad - prev_Mgrad)
-    beta = beta / jp.maximum(mujoco.mjMINVAL, jp.dot(prev_grad, prev_Mgrad))
-    beta = jp.maximum(0, beta)
+    beta = beta / torch.clamp_min(jp.dot(prev_grad, prev_Mgrad), mujoco.mjMINVAL)
+    # beta = beta / jp.maximum(mujoco.mjMINVAL, jp.dot(prev_grad, prev_Mgrad))
+    beta = torch.clamp_min(beta, 0)
+    # beta = jp.maximum(0, beta)
     search = -ctx.Mgrad + beta * ctx.search
     ctx = ctx.replace(search=search, solver_niter=ctx.solver_niter + 1)
 
@@ -373,7 +384,6 @@ def solve(m: Model, d: Data) -> Data:
   else:
     while cond(ctx):
       ctx = body(ctx)
-      cond(ctx)
     # ctx = jax.lax.while_loop(cond, body, ctx)
 
   d = d.replace(
@@ -384,3 +394,25 @@ def solve(m: Model, d: Data) -> Data:
   )
 
   return d
+
+def tree_map(func, *trees):
+  flat_args, spec = zip(*(torch.utils._pytree.tree_flatten(tree) for tree in trees))
+  return torch.utils._pytree.tree_unflatten([func(*args) for args in zip(*flat_args)], spec[0])
+
+torch.utils._pytree.tree_map = tree_map
+
+def scan(f, init, xs, length=None):
+  if xs is None:
+    xs = [None] * length
+  carry = init
+  ys = []
+  for x in xs:
+    carry, y = f(carry, x)
+    ys.append(y)
+  return carry, torch.stack(ys) if all(y is not None for y in ys) else None
+
+def condfun(pred, true_fun, false_fun, *operands):
+  if pred:
+    return true_fun(*operands)
+  else:
+    return false_fun(*operands)
